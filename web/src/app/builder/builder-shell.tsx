@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 
 import type { AuthUser } from "@/lib/auth/auth";
 import type { BuilderSession } from "@/lib/builder/types";
-import type { StackModes } from "@/lib/stack-modes";
 
 interface SessionResponse {
   session: BuilderSession;
@@ -12,28 +11,14 @@ interface SessionResponse {
 
 interface BuilderShellProps {
   initialUser: AuthUser;
-  initialStackModes: StackModes;
 }
 
-function modePill(label: string, value: string) {
-  return (
-    <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100">
-      <strong className="font-medium text-cyan-200">{label}</strong>
-      <span>{value}</span>
-    </span>
-  );
-}
-
-export function BuilderShell({
-  initialUser,
-  initialStackModes,
-}: BuilderShellProps) {
+export function BuilderShell({ initialUser }: BuilderShellProps) {
   const [prompt, setPrompt] = useState("");
   const [message, setMessage] = useState("");
   const [session, setSession] = useState<BuilderSession | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const logoutLabel = "Log out (WorkOS)";
 
   const canStart = prompt.trim().length > 0 && !loading;
   const canSend = message.trim().length > 0 && session !== null && !loading;
@@ -122,10 +107,7 @@ export function BuilderShell({
         <header className="mb-5 rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-4 sm:p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs tracking-wide text-[var(--text-muted)] uppercase">
-                Lovable Clone M0
-              </p>
-              <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+              <h1 className="text-2xl font-semibold tracking-tight">
                 Builder Console
               </h1>
               <p className="mt-1 text-sm text-[var(--text-muted)]">
@@ -137,14 +119,9 @@ export function BuilderShell({
                   type="submit"
                   className="rounded-lg border border-slate-500/50 px-3 py-2 text-sm hover:bg-slate-800"
                 >
-                  {logoutLabel}
+                  Logout
                 </button>
               </form>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {modePill("auth", initialStackModes.auth)}
-            {modePill("db", initialStackModes.database)}
-            {modePill("sandbox", initialStackModes.sandboxProvider)}
           </div>
         </header>
 
