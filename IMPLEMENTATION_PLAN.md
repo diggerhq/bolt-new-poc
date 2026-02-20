@@ -88,6 +88,7 @@ Goal: all major components exist and work together in one flow.
 - `done` Validate local lint + production build for M0
 - `done` Replace custom WorkOS OAuth handling with WorkOS AuthKit callback + middleware
 - `done` Remove custom auth cookie/session state handling in app code
+- `done` Handle stale/expired auth callback codes by restarting sign-in flow
 - `todo` Deploy first approximation to a hosted environment
 
 Exit criteria:
@@ -146,7 +147,8 @@ Exit criteria:
 
 ## Known issues / caveats
 
-- Next.js warns about multiple lockfiles and inferred workspace root. To clean this up, set `turbopack.root` in `web/next.config.ts`.
+- Auth callback codes are single-use and short-lived; refreshing old callback URLs can return `invalid_grant`. Current callback handler restarts sign-in automatically for this case.
+- `turbopack.root` is pinned to the `web/` directory in `web/next.config.ts` to avoid workspace-root drift and Tailwind module resolution failures when commands run from the repo root.
 
 ---
 
@@ -163,6 +165,8 @@ Exit criteria:
 - `done` Validated M0 locally with `npm run lint` and `npm run build`
 - `done` Migrated auth to WorkOS AuthKit (`src/proxy.ts` middleware + `handleAuth` callback)
 - `done` Removed custom app-managed auth cookies/state logic and kept app routes protected
+- `done` Added callback error recovery for WorkOS `invalid_grant` (automatic fresh sign-in redirect)
+- `done` Fixed Turbopack root configuration to resolve Tailwind/PostCSS reliably from `web/`
 
 ---
 
