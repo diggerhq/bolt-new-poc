@@ -17,7 +17,7 @@ export const GET = handleAuth({
   returnPathname: "/builder",
   onError: async ({ error, request }) => {
     if (isInvalidGrantError(error)) {
-      const retryUrl = new URL("/api/m0/auth/sign-in", request.url);
+      const retryUrl = new URL("/api/auth/sign-in", request.url);
       retryUrl.searchParams.set("reason", "invalid_grant");
       return NextResponse.redirect(retryUrl, { status: 303 });
     }

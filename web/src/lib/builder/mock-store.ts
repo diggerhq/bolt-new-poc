@@ -106,7 +106,7 @@ export function createSession(input: CreateSessionInput): BuilderSession {
           summary: "Landing page with builder shell.",
         },
         {
-          path: "app/api/m0/sessions/route.ts",
+          path: "app/api/sessions/route.ts",
           summary: "Stub create-session endpoint.",
         },
       ],
@@ -190,4 +190,3 @@ export function appendSessionMessage(
   sessions.set(session.id, session);
   return session;
 }
-

@@ -54,7 +54,7 @@ export function BuilderShell({
     setLoading(true);
 
     try {
-      const response = await fetch("/api/m0/sessions", {
+      const response = await fetch("/api/sessions", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -90,7 +90,7 @@ export function BuilderShell({
     setLoading(true);
 
     try {
-      const response = await fetch(`/api/m0/sessions/${session.id}/messages`, {
+      const response = await fetch(`/api/sessions/${session.id}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -132,7 +132,7 @@ export function BuilderShell({
                 Signed in as {initialUser.email}
               </p>
             </div>
-            <form action="/api/m0/auth/sign-out" method="post">
+            <form action="/api/auth/sign-out" method="post">
                 <button
                   type="submit"
                   className="rounded-lg border border-slate-500/50 px-3 py-2 text-sm hover:bg-slate-800"

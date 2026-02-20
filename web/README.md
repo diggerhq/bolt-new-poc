@@ -43,13 +43,13 @@ npm run build
 
 ## M0 API routes
 
-- `GET /api/m0/auth/sign-in`
-- `POST /api/m0/auth/sign-in`
-- `POST /api/m0/auth/sign-out`
-- `GET /api/m0/context`
-- `POST /api/m0/sessions`
-- `GET /api/m0/sessions/[sessionId]`
-- `POST /api/m0/sessions/[sessionId]/messages`
+- `GET /api/auth/sign-in`
+- `POST /api/auth/sign-in`
+- `POST /api/auth/sign-out`
+- `GET /api/context`
+- `POST /api/sessions`
+- `GET /api/sessions/[sessionId]`
+- `POST /api/sessions/[sessionId]/messages`
 - `GET /api/health`
 
 ## Notes

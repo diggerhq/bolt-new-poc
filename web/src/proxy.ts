@@ -6,7 +6,7 @@ export default authkitMiddleware({
     unauthenticatedPaths: [
       "/auth/callback",
       "/sign-in",
-      "/api/m0/auth/sign-in",
+      "/api/auth/sign-in",
     ],
   },
 });
