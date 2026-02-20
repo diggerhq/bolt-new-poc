@@ -62,6 +62,16 @@ This is the product. The “sandbox abstraction” is a byproduct we extract lat
 
 ---
 
+## Current implementation snapshot
+
+- Active app code lives in `web/` (Next.js App Router)
+- M0 slice is implemented end-to-end with stubs for missing integrations
+- Current flow: sign-in -> builder UI -> prompt/chat -> trace timeline -> preview
+- API surface is scaffolded under `web/src/app/api/m0/*`
+- Current implementation status and next tasks are tracked in `IMPLEMENTATION_PLAN.md`
+
+---
+
 ## Key principle: ship the clone, log the gaps
 
 Whenever we implement something “around” the sandbox provider, we must write it down.

@@ -80,11 +80,12 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 
 Goal: all major components exist and work together in one flow.
 
-- `todo` Next.js builder UI shell (prompt/chat/preview/timeline panes)
-- `todo` WorkOS sign-in + protected builder route
+- `done` Next.js builder UI shell (prompt/chat/preview/timeline panes)
+- `in_progress` WorkOS sign-in + protected builder route
 - `todo` Supabase schema v0 (users, projects, conversations, traces, sessions)
-- `todo` API endpoints with stubbed agent/sandbox/deploy behavior
-- `todo` Trigger prompt -> "fake generated app" -> preview panel wired
+- `done` API endpoints with stubbed agent/sandbox/deploy behavior
+- `done` Trigger prompt -> "fake generated app" -> preview panel wired
+- `done` Validate local lint + production build for M0
 - `todo` Deploy first approximation to a hosted environment
 
 Exit criteria:
@@ -131,13 +132,19 @@ Exit criteria:
 
 ## Immediate next tasks (execute now)
 
-1. `todo` Scaffold latest Next.js app with builder shell layout and placeholder data
-2. `todo` Add WorkOS auth flow and route protection
+1. `done` Scaffold latest Next.js app with builder shell layout and placeholder data
+2. `in_progress` Add WorkOS auth flow and route protection
 3. `todo` Set up Supabase project + schema migration v0
-4. `todo` Define minimal API contracts for agent/sandbox/trace/deploy
-5. `todo` Implement M0 stub backend endpoints and wire UI end-to-end
-6. `todo` Deploy M0 build and validate full flow with stubs
+4. `done` Define minimal API contracts for agent/sandbox/trace/deploy
+5. `done` Implement M0 stub backend endpoints and wire UI end-to-end
+6. `todo` Deploy M0 build (hosted) and validate full flow with stubs
 7. `in_progress` Maintain `SANDBOX.md` as real integration gaps appear
+
+---
+
+## Known issues / caveats
+
+- Next.js warns about multiple lockfiles and inferred workspace root. To clean this up, set `turbopack.root` in `web/next.config.ts`.
 
 ---
 
@@ -149,6 +156,9 @@ Exit criteria:
 - `done` Created implementation tracker (`IMPLEMENTATION_PLAN.md`)
 - `done` Created `SANDBOX.md` and linked it from planning/index docs
 - `done` Adopted Progressive JPEG delivery approach and milestone plan
+- `done` Bootstrapped `web/` with Next.js 16 App Router and M0 builder shell
+- `done` Added protected stub auth, M0 API routes, timeline, and preview loop
+- `done` Validated M0 locally with `npm run lint` and `npm run build`
 
 ---
 
