@@ -36,7 +36,7 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 ## Architecture sketch (first approximation)
 
 - Next.js web app (UI + thin API/BFF layer)
-- WorkOS auth for user/session identity
+- WorkOS AuthKit for user/session identity
 - Supabase for app data (projects, chats, traces, deploy records)
 - Sandbox provider adapter (single provider first)
 - Agent orchestration loop (initially in-process)
@@ -81,11 +81,13 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 Goal: all major components exist and work together in one flow.
 
 - `done` Next.js builder UI shell (prompt/chat/preview/timeline panes)
-- `in_progress` WorkOS sign-in + protected builder route
+- `done` WorkOS AuthKit sign-in + protected builder route
 - `todo` Supabase schema v0 (users, projects, conversations, traces, sessions)
 - `done` API endpoints with stubbed agent/sandbox/deploy behavior
 - `done` Trigger prompt -> "fake generated app" -> preview panel wired
 - `done` Validate local lint + production build for M0
+- `done` Replace custom WorkOS OAuth handling with WorkOS AuthKit callback + middleware
+- `done` Remove custom auth cookie/session state handling in app code
 - `todo` Deploy first approximation to a hosted environment
 
 Exit criteria:
@@ -133,7 +135,7 @@ Exit criteria:
 ## Immediate next tasks (execute now)
 
 1. `done` Scaffold latest Next.js app with builder shell layout and placeholder data
-2. `in_progress` Add WorkOS auth flow and route protection
+2. `done` Add WorkOS AuthKit flow and route protection
 3. `todo` Set up Supabase project + schema migration v0
 4. `done` Define minimal API contracts for agent/sandbox/trace/deploy
 5. `done` Implement M0 stub backend endpoints and wire UI end-to-end
@@ -157,8 +159,10 @@ Exit criteria:
 - `done` Created `SANDBOX.md` and linked it from planning/index docs
 - `done` Adopted Progressive JPEG delivery approach and milestone plan
 - `done` Bootstrapped `web/` with Next.js 16 App Router and M0 builder shell
-- `done` Added protected stub auth, M0 API routes, timeline, and preview loop
+- `done` Added protected auth, M0 API routes, timeline, and preview loop
 - `done` Validated M0 locally with `npm run lint` and `npm run build`
+- `done` Migrated auth to WorkOS AuthKit (`src/proxy.ts` middleware + `handleAuth` callback)
+- `done` Removed custom app-managed auth cookies/state logic and kept app routes protected
 
 ---
 

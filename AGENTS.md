@@ -67,6 +67,7 @@ This is the product. The “sandbox abstraction” is a byproduct we extract lat
 - Active app code lives in `web/` (Next.js App Router)
 - M0 slice is implemented end-to-end with stubs for missing integrations
 - Current flow: sign-in -> builder UI -> prompt/chat -> trace timeline -> preview
+- Authentication is WorkOS AuthKit in `web/` (callback + proxy middleware)
 - API surface is scaffolded under `web/src/app/api/m0/*`
 - Current implementation status and next tasks are tracked in `IMPLEMENTATION_PLAN.md`
 

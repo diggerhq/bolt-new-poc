@@ -5,9 +5,9 @@ M0 implementation of the Lovable/bolt.new-style app-builder product.
 ## Current scope (M0)
 
 - Next.js 16 App Router UI shell
-- Protected builder route with stub auth
+- WorkOS AuthKit authentication
 - Prompt -> session bootstrap -> trace timeline -> preview loop
-- Stub API contracts for auth, sessions, messaging, and context
+- API contracts for auth, sessions, messaging, and context
 
 ## Run locally
 
@@ -16,7 +16,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`.
+Open `http://127.0.0.1:3000`.
 
 ## Environment
 
@@ -28,9 +28,11 @@ cp .env.example .env.local
 
 Current mode behavior:
 
-- If WorkOS env vars are missing, auth falls back to stub mode
+- WorkOS AuthKit is required for sign-in
 - If Supabase env vars are missing, data layer remains stub/in-memory
 - Sandbox provider is currently stubbed until M1 integration
+- Configure WorkOS callback URL to `http://127.0.0.1:3000/auth/callback`
+- `WORKOS_COOKIE_PASSWORD` must be at least 32 characters
 
 ## Validation
 
@@ -41,6 +43,7 @@ npm run build
 
 ## M0 API routes
 
+- `GET /api/m0/auth/sign-in`
 - `POST /api/m0/auth/sign-in`
 - `POST /api/m0/auth/sign-out`
 - `GET /api/m0/context`
@@ -51,5 +54,8 @@ npm run build
 
 ## Notes
 
+- Auth protection is centralized in `web/src/proxy.ts` with `authkitMiddleware`.
+- `/sign-in` immediately redirects to WorkOS (no intermediate app UI screen).
 - Build may warn about inferred workspace root due multiple lockfiles.
 - To silence that warning, configure `turbopack.root` in `web/next.config.ts`.
+- Sign-out uses AuthKit `signOut` and redirects through WorkOS logout.
