@@ -33,6 +33,7 @@ Current mode behavior:
   - `DATABASE_URL`
 - Supabase schema migration lives at `supabase/migrations/20260220223500_m0_core_schema.sql`
 - Sandbox provider is currently stubbed until M1 integration
+- M1 integration target is E2B (set `E2B_API_KEY` for sandbox work)
 - Configure WorkOS callback URL to `http://127.0.0.1:3000/auth/callback`
 - `WORKOS_COOKIE_PASSWORD` must be at least 32 characters
 - Hosted deployment target for this app: `https://bolt-new-poc-web.vercel.app`

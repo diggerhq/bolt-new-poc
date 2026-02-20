@@ -19,11 +19,11 @@ This is a working document. Update it whenever sandbox-related glue code is adde
 
 ## Current provider status
 
-- Selected provider: `TBD`
-- Session lifecycle model: `TBD`
-- Preview URL model: `TBD`
-- Filesystem sync model: `TBD`
-- Command execution model: `TBD`
+- Selected provider: `E2B` (M1)
+- Session lifecycle model: one sandbox per builder session
+- Preview URL model: app dev server runs in same sandbox and is exposed via provider port URL
+- Filesystem sync model: sync `harness/` + app workspace into sandbox at session bootstrap
+- Command execution model: per-message harness turn command (`run-turn`) with structured JSONL events
 
 ---
 

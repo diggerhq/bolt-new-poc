@@ -70,6 +70,7 @@ This is the product. The “sandbox abstraction” is a byproduct we extract lat
 - Authentication is WorkOS AuthKit in `web/` (callback + proxy middleware)
 - Data persistence uses Supabase Postgres via server-only `DATABASE_URL` access (no browser DB access, no Supabase anon-key runtime path)
 - Hosted app environment: Vercel project `bolt-new-poc-web` (`https://bolt-new-poc-web.vercel.app`)
+- M1 sandbox direction: E2B + sandbox-resident harness app (`harness/`) using Claude Agent SDK
 - API surface is scaffolded under `web/src/app/api/*`
 - Current implementation status and next tasks are tracked in `IMPLEMENTATION_PLAN.md`
 

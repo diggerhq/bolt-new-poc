@@ -38,7 +38,8 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 - Next.js web app (UI + thin API/BFF layer)
 - WorkOS AuthKit for user/session identity
 - Supabase Postgres for app data via server-only `DATABASE_URL` access
-- Sandbox provider adapter (single provider first)
+- Sandbox provider adapter (E2B first)
+- Sandbox-resident harness app (`harness/`) using Claude Agent SDK
 - Agent orchestration loop (initially in-process)
 - Preview surface (sandbox URL for dev)
 - Deploy adapter (production target, separate from sandbox)
@@ -60,7 +61,7 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 - Web UI/runtime: latest stable Next.js (App Router)
 - Database: Supabase Postgres (project/session/chat/trace storage) via server-only access
 - Authentication: WorkOS
-- Sandbox: one provider to start (`todo` choose)
+- Sandbox: E2B (first provider for M1)
 - Deploy target: separate from sandbox (`todo` choose)
 
 ---
@@ -77,7 +78,7 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 
 ## Progressive milestones
 
-### M0: End-to-end skeleton with stubs (`in_progress`)
+### M0: End-to-end skeleton with stubs (`done`)
 
 Goal: all major components exist and work together in one flow.
 
@@ -99,15 +100,35 @@ Goal: all major components exist and work together in one flow.
 Exit criteria:
 - User can sign in, create a project, submit prompt, see timeline events, and open a preview URL (stubbed output acceptable)
 
-### M1: Real sandbox execution loop (`todo`)
+### M1: Real sandbox execution loop (`in_progress`)
 
-- `todo` Select provider and implement session lifecycle
-- `todo` Replace stub run/edit actions with real command/file operations
-- `todo` Stream real execution logs into trace timeline
-- `todo` Keep dev preview backed by sandbox URL
+Design decisions (locked for first M1 slice):
+- `done` Provider choice: E2B
+- `done` Harness shape: separate app in `harness/` using Claude Agent SDK
+- `done` Harness runtime model: execute harness inside the sandbox (not on web server host)
+- `done` Sandbox workspace layout:
+  - `/workspace/app` -> generated user project
+  - `/workspace/harness` -> harness runtime code
+  - `/workspace/.builder` -> runtime metadata/log files
+- `done` Turn execution protocol: one sandbox turn-runner command per user message (`run-turn`), serialized per session
+- `done` Trace/progress transport: structured JSONL events from harness stdout -> persisted to `session_events`
+- `done` Preview strategy: run dev server for `/workspace/app` in the same sandbox, expose port via E2B, persist URL to `builder_sessions.preview_url`
+- `done` Concurrency rule: strict per-session lock + FIFO message queue while a run is active
+
+Implementation tasks:
+- `todo` Scaffold `harness/` app and `run-turn` entrypoint with Claude Agent SDK
+- `todo` Add E2B adapter in web backend (sandbox create/resume, file sync, process exec, port exposure)
+- `todo` Add runtime metadata persistence for sandbox/session/run bookkeeping
+- `todo` Implement session bootstrap: create sandbox, sync harness + app scaffold, start dev server, save preview URL
+- `todo` Implement message-run loop: enqueue message, execute turn-runner, update session status
+- `todo` Persist live harness events into `session_events` and show in timeline
+- `todo` Add timeout/kill/retry safeguards for sandbox commands and stuck turns
 
 Exit criteria:
-- Prompt generates/edits files in a real sandbox and serves a real running preview
+- Prompt + follow-up messages produce real file edits in E2B sandbox
+- Builder timeline shows real in-progress and completion events from harness
+- Preview URL serves app output from the same sandbox session
+- Failed turns produce actionable trace events and can be retried
 
 ### M2: Real iterative agent and debug loop (`todo`)
 
@@ -146,7 +167,9 @@ Exit criteria:
 4. `done` Define minimal API contracts for agent/sandbox/trace/deploy
 5. `done` Implement M0 stub backend endpoints and wire UI end-to-end
 6. `done` Deploy M0 build to Vercel and configure production env/auth redirects
-7. `in_progress` Maintain `SANDBOX.md` as real integration gaps appear
+7. `done` Select E2B as first sandbox provider and define M1 harness architecture
+8. `in_progress` Scaffold `harness/` app and wire first E2B session bootstrap
+9. `in_progress` Maintain `SANDBOX.md` as real integration gaps appear
 
 ---
 
@@ -181,11 +204,12 @@ Exit criteria:
 - `done` Replaced Supabase API client usage with server-only Postgres pool (`web/src/lib/db/postgres.ts`) and removed `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` runtime dependency
 - `done` Deployed production app to Vercel (`https://bolt-new-poc-web.vercel.app`) and configured WorkOS production callback/redirect settings
 - `done` Fixed production DB connectivity by switching Vercel `DATABASE_URL` to Supabase pooler host and updating SSL mode for runtime compatibility
+- `done` Chose E2B as M1 sandbox provider and locked first-pass harness design (`harness/` + per-message turn-runner + JSONL trace ingestion)
 
 ---
 
 ## Open questions
 
-- Which sandbox provider should be first (E2B, Daytona, Modal, other)?
+- Which Claude credential path should be used inside sandboxed harness runtime for M1 (API key vs other)?
 - Which deploy target should be first for user-built apps (Cloudflare Workers, Vercel, other)?
-- Should we keep orchestration in-process for M0/M1, or add a queue before M2?
+- Should turn execution stay per-message command invocations in M1, or move to a long-lived harness daemon in M2?
