@@ -69,7 +69,6 @@ Whenever we implement something “around” the sandbox provider, we must write
 ### Required repo artifacts for learnings
 Create and keep up to date:
 - `SANDBOX.md` — a running log of capabilities we expected from the provider, what it offered, what we built, and candidate future sandbox API
-- `DECISIONS.md` — decisions that materially affect architecture (provider choice, trace schema, deploy target, etc.)
 
 **Rule:** If you write glue code that feels like “this should be in the sandbox API,” add an entry to `SANDBOX.md`.
 

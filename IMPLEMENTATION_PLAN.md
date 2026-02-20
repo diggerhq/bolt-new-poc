@@ -59,7 +59,7 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 
 ### 3) Sandbox integration
 
-- `todo` Choose first provider and document rationale in `DECISIONS.md`
+- `todo` Choose first provider and document rationale
 - `todo` Implement session lifecycle (create/resume/terminate)
 - `todo` Implement command execution + file sync primitives
 - `todo` Implement preview URL surfacing
@@ -79,14 +79,13 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 ### 6) Learnings capture
 
 - `in_progress` Maintain `SANDBOX.md`
-- `todo` Create and maintain `DECISIONS.md`
 - `todo` Add gap entries whenever provider glue code is introduced
 
 ---
 
 ## Immediate next tasks
 
-1. `todo` Create `DECISIONS.md` and select initial sandbox provider
+1. `todo` Select initial sandbox provider
 2. `done` Create `SANDBOX.md` with template entries
 3. `todo` Define MVP trace event schema
 4. `todo` Scaffold backend service boundaries (agent, sandbox, trace, deploy)
