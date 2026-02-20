@@ -94,7 +94,7 @@ Goal: all major components exist and work together in one flow.
 - `done` Simplify builder header UI (removed stack tags and M0 label)
 - `done` Add Supabase-backed builder store and wire API/preview reads+writes
 - `done` Remove Supabase API client usage and switch builder store to direct server-side Postgres (`pg` + `DATABASE_URL`)
-- `todo` Deploy first approximation to a hosted environment
+- `done` Deploy first approximation to a hosted environment (Vercel project `bolt-new-poc-web`)
 
 Exit criteria:
 - User can sign in, create a project, submit prompt, see timeline events, and open a preview URL (stubbed output acceptable)
@@ -145,7 +145,7 @@ Exit criteria:
 3. `done` Set up Supabase schema migration v0
 4. `done` Define minimal API contracts for agent/sandbox/trace/deploy
 5. `done` Implement M0 stub backend endpoints and wire UI end-to-end
-6. `todo` Deploy M0 build (hosted) and validate full flow with stubs
+6. `done` Deploy M0 build to Vercel and configure production env/auth redirects
 7. `in_progress` Maintain `SANDBOX.md` as real integration gaps appear
 
 ---
@@ -154,6 +154,8 @@ Exit criteria:
 
 - Auth callback codes are single-use and short-lived; refreshing old callback URLs can return `invalid_grant`. Current callback handler restarts sign-in automatically for this case.
 - `turbopack.root` is pinned to the `web/` directory in `web/next.config.ts` to avoid workspace-root drift and Tailwind module resolution failures when commands run from the repo root.
+- For Vercel + Supabase Postgres, use a pooler host in `DATABASE_URL`; the direct `db.<project-ref>.supabase.co` host produced `ENOTFOUND` in runtime.
+- For current `pg` behavior with Supabase pooler in this stack, `DATABASE_URL` uses `sslmode=no-verify`.
 
 ---
 
@@ -177,11 +179,13 @@ Exit criteria:
 - `done` Added Supabase migration `supabase/migrations/20260220223500_m0_core_schema.sql` with indexes, triggers, and RLS baseline
 - `done` Replaced in-memory-only session access paths with mandatory Supabase-backed store (`web/src/lib/builder/store.ts`)
 - `done` Replaced Supabase API client usage with server-only Postgres pool (`web/src/lib/db/postgres.ts`) and removed `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` runtime dependency
+- `done` Deployed production app to Vercel (`https://bolt-new-poc-web.vercel.app`) and configured WorkOS production callback/redirect settings
+- `done` Fixed production DB connectivity by switching Vercel `DATABASE_URL` to Supabase pooler host and updating SSL mode for runtime compatibility
 
 ---
 
 ## Open questions
 
 - Which sandbox provider should be first (E2B, Daytona, Modal, other)?
-- Which deploy target should be first (Cloudflare Workers, Vercel, other)?
+- Which deploy target should be first for user-built apps (Cloudflare Workers, Vercel, other)?
 - Should we keep orchestration in-process for M0/M1, or add a queue before M2?

@@ -35,6 +35,7 @@ Current mode behavior:
 - Sandbox provider is currently stubbed until M1 integration
 - Configure WorkOS callback URL to `http://127.0.0.1:3000/auth/callback`
 - `WORKOS_COOKIE_PASSWORD` must be at least 32 characters
+- Hosted deployment target for this app: `https://bolt-new-poc-web.vercel.app`
 
 ## Validation
 
@@ -42,6 +43,22 @@ Current mode behavior:
 npm run lint
 npm run build
 ```
+
+## Production (Vercel)
+
+- Project: `bolt-new-poc-web`
+- Required production env vars:
+  - `WORKOS_API_KEY`
+  - `WORKOS_CLIENT_ID`
+  - `WORKOS_COOKIE_PASSWORD`
+  - `NEXT_PUBLIC_WORKOS_REDIRECT_URI` = `https://bolt-new-poc-web.vercel.app/auth/callback`
+  - `WORKOS_REDIRECT_URI` = `https://bolt-new-poc-web.vercel.app/auth/callback`
+  - `DATABASE_URL`
+- WorkOS allowed URLs must include:
+  - Redirect URI: `https://bolt-new-poc-web.vercel.app/auth/callback`
+  - Logout return URL: `https://bolt-new-poc-web.vercel.app/api/auth/sign-in`
+- `DATABASE_URL` for Vercel should use the Supabase pooler host, not `db.<project-ref>.supabase.co`.
+- Current runtime configuration uses `sslmode=no-verify` on the pooler connection string.
 
 ## M0 API routes
 

@@ -69,6 +69,7 @@ This is the product. The “sandbox abstraction” is a byproduct we extract lat
 - Current flow: sign-in -> builder UI -> prompt/chat -> trace timeline -> preview
 - Authentication is WorkOS AuthKit in `web/` (callback + proxy middleware)
 - Data persistence uses Supabase Postgres via server-only `DATABASE_URL` access (no browser DB access, no Supabase anon-key runtime path)
+- Hosted app environment: Vercel project `bolt-new-poc-web` (`https://bolt-new-poc-web.vercel.app`)
 - API surface is scaffolded under `web/src/app/api/*`
 - Current implementation status and next tasks are tracked in `IMPLEMENTATION_PLAN.md`
 
