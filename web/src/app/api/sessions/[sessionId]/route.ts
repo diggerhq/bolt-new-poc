@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/auth";
-import { getSession } from "@/lib/builder/mock-store";
+import { getBuilderSession } from "@/lib/builder/store";
 
 interface SessionRouteParams {
   params: Promise<{
@@ -15,9 +15,9 @@ export async function GET(_request: Request, { params }: SessionRouteParams) {
   }
 
   const { sessionId } = await params;
-  const session = getSession(sessionId);
+  const session = await getBuilderSession(sessionId, user.id);
 
-  if (!session || session.userId !== user.id) {
+  if (!session) {
     return Response.json({ error: "Session not found." }, { status: 404 });
   }
 

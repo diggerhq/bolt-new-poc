@@ -1,4 +1,4 @@
-import { createSession } from "@/lib/builder/mock-store";
+import { createBuilderSession } from "@/lib/builder/store";
 import { getCurrentUser } from "@/lib/auth/auth";
 import { getStackModes } from "@/lib/stack-modes";
 
@@ -23,9 +23,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = createSession({
+  const session = await createBuilderSession({
     prompt,
-    userId: user.id,
+    user,
   });
 
   return Response.json({

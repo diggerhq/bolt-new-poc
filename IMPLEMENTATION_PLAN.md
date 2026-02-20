@@ -37,7 +37,7 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 
 - Next.js web app (UI + thin API/BFF layer)
 - WorkOS AuthKit for user/session identity
-- Supabase for app data (projects, chats, traces, deploy records)
+- Supabase Postgres for app data via server-only `DATABASE_URL` access
 - Sandbox provider adapter (single provider first)
 - Agent orchestration loop (initially in-process)
 - Preview surface (sandbox URL for dev)
@@ -58,7 +58,7 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 ## Default stack choices
 
 - Web UI/runtime: latest stable Next.js (App Router)
-- Database: Supabase (Postgres + auth/session metadata storage)
+- Database: Supabase Postgres (project/session/chat/trace storage) via server-only access
 - Authentication: WorkOS
 - Sandbox: one provider to start (`todo` choose)
 - Deploy target: separate from sandbox (`todo` choose)
@@ -69,6 +69,7 @@ Do not use this file for long-term repo policy; keep durable guidance in `AGENTS
 
 - Assumption: backend complexity can stay low because sandbox handles compute/exec/filesystem/ports.
 - Clarification: mostly true for execution primitives, but backend still owns orchestration, authz, state, trace persistence, retries/timeouts, and deploy coordination.
+- Data access policy: server-only DB usage through `DATABASE_URL` (no Supabase anon-key/browser data path).
 - Assumption: user-built app can be served from sandbox for development.
 - Decision: yes for the first approximation; start with provider URL/port exposure in dev, and record any need for stable/public/policy-gated URLs in `SANDBOX.md`.
 
@@ -82,7 +83,7 @@ Goal: all major components exist and work together in one flow.
 
 - `done` Next.js builder UI shell (prompt/chat/preview/timeline panes)
 - `done` WorkOS AuthKit sign-in + protected builder route
-- `todo` Supabase schema v0 (users, projects, conversations, traces, sessions)
+- `done` Supabase schema v0 (users, projects, sessions, messages, events)
 - `done` API endpoints with stubbed agent/sandbox/deploy behavior
 - `done` Trigger prompt -> "fake generated app" -> preview panel wired
 - `done` Validate local lint + production build for M0
@@ -91,6 +92,8 @@ Goal: all major components exist and work together in one flow.
 - `done` Handle stale/expired auth callback codes by restarting sign-in flow
 - `done` Normalize API routes to `/api/*` (removed `/api/m0/*` prefix)
 - `done` Simplify builder header UI (removed stack tags and M0 label)
+- `done` Add Supabase-backed builder store and wire API/preview reads+writes
+- `done` Remove Supabase API client usage and switch builder store to direct server-side Postgres (`pg` + `DATABASE_URL`)
 - `todo` Deploy first approximation to a hosted environment
 
 Exit criteria:
@@ -139,7 +142,7 @@ Exit criteria:
 
 1. `done` Scaffold latest Next.js app with builder shell layout and placeholder data
 2. `done` Add WorkOS AuthKit flow and route protection
-3. `todo` Set up Supabase project + schema migration v0
+3. `done` Set up Supabase schema migration v0
 4. `done` Define minimal API contracts for agent/sandbox/trace/deploy
 5. `done` Implement M0 stub backend endpoints and wire UI end-to-end
 6. `todo` Deploy M0 build (hosted) and validate full flow with stubs
@@ -171,6 +174,9 @@ Exit criteria:
 - `done` Fixed Turbopack root configuration to resolve Tailwind/PostCSS reliably from `web/`
 - `done` Renamed API routes from `/api/m0/*` to clean `/api/*` paths and updated all callsites/docs
 - `done` Simplified builder header copy and removed stack-mode pills from UI
+- `done` Added Supabase migration `supabase/migrations/20260220223500_m0_core_schema.sql` with indexes, triggers, and RLS baseline
+- `done` Replaced in-memory-only session access paths with mandatory Supabase-backed store (`web/src/lib/builder/store.ts`)
+- `done` Replaced Supabase API client usage with server-only Postgres pool (`web/src/lib/db/postgres.ts`) and removed `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` runtime dependency
 
 ---
 

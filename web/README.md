@@ -29,7 +29,9 @@ cp .env.example .env.local
 Current mode behavior:
 
 - WorkOS AuthKit is required for sign-in
-- If Supabase env vars are missing, data layer remains stub/in-memory
+- Supabase Postgres is required for session storage via server-only DB access:
+  - `DATABASE_URL`
+- Supabase schema migration lives at `supabase/migrations/20260220223500_m0_core_schema.sql`
 - Sandbox provider is currently stubbed until M1 integration
 - Configure WorkOS callback URL to `http://127.0.0.1:3000/auth/callback`
 - `WORKOS_COOKIE_PASSWORD` must be at least 32 characters
