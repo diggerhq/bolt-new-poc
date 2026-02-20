@@ -89,6 +89,8 @@ Goal: all major components exist and work together in one flow.
 - `done` Replace custom WorkOS OAuth handling with WorkOS AuthKit callback + middleware
 - `done` Remove custom auth cookie/session state handling in app code
 - `done` Handle stale/expired auth callback codes by restarting sign-in flow
+- `done` Normalize API routes to `/api/*` (removed `/api/m0/*` prefix)
+- `done` Simplify builder header UI (removed stack tags and M0 label)
 - `todo` Deploy first approximation to a hosted environment
 
 Exit criteria:
@@ -167,6 +169,8 @@ Exit criteria:
 - `done` Removed custom app-managed auth cookies/state logic and kept app routes protected
 - `done` Added callback error recovery for WorkOS `invalid_grant` (automatic fresh sign-in redirect)
 - `done` Fixed Turbopack root configuration to resolve Tailwind/PostCSS reliably from `web/`
+- `done` Renamed API routes from `/api/m0/*` to clean `/api/*` paths and updated all callsites/docs
+- `done` Simplified builder header copy and removed stack-mode pills from UI
 
 ---
 
