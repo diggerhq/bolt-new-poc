@@ -12,6 +12,21 @@ Only **after** we ship a functioning app-builder agent and see what we had to ad
 
 ---
 
+## Document philosophy
+
+`AGENTS.md` is the permanent index for agents working in this repo.
+
+- Keep it stable and additive: avoid frequent rewrites
+- Use it for durable guidance, high-level architecture, and links to important docs/artifacts
+- Treat it as an "agent README" for long-lived context
+- Put active project execution details elsewhere (implementation plans, day-to-day tasks, status updates)
+
+Current active implementation tracker:
+- `IMPLEMENTATION_PLAN.md` — design notes, milestone/task tracking, and progress log
+- `SANDBOX.md` — running findings about sandbox capabilities, missing pieces, and candidate API surface
+
+---
+
 ## Why we’re doing it this way
 
 Existing sandboxes provide low-level primitives (compute, exec, filesystem, ports). Builder agents (Lovable/v0-like products) typically require additional behavior (traces, safe preview URLs, rollback semantics, multi-service patterns, deploy pipelines, etc.).
@@ -53,10 +68,10 @@ Whenever we implement something “around” the sandbox provider, we must write
 
 ### Required repo artifacts for learnings
 Create and keep up to date:
-- `SANDBOX_GAPS.md` — a running log of capabilities we expected from the provider but had to build ourselves
+- `SANDBOX.md` — a running log of capabilities we expected from the provider, what it offered, what we built, and candidate future sandbox API
 - `DECISIONS.md` — decisions that materially affect architecture (provider choice, trace schema, deploy target, etc.)
 
-**Rule:** If you write glue code that feels like “this should be in the sandbox API,” add an entry to `SANDBOX_GAPS.md`.
+**Rule:** If you write glue code that feels like “this should be in the sandbox API,” add an entry to `SANDBOX.md`.
 
 Suggested gap entry format:
 ```md
@@ -66,3 +81,4 @@ Suggested gap entry format:
 - What we built: edge proxy + signed link tokens
 - Why it matters: required for safe sharing of previews
 - Potential future sandbox API: create_endpoint(session_id, policy) -> url
+```
