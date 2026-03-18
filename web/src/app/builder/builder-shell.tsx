@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { AuthUser } from "@/lib/auth/auth";
-import type { BuilderSession } from "@/lib/builder/types";
+import type { BuilderSession, TraceEvent } from "@/lib/builder/types";
 
 interface SessionResponse {
   session: BuilderSession;
@@ -17,21 +17,60 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
   const [prompt, setPrompt] = useState("");
   const [message, setMessage] = useState("");
   const [session, setSession] = useState<BuilderSession | null>(null);
+  const [liveEvents, setLiveEvents] = useState<TraceEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const canStart = prompt.trim().length > 0 && !loading;
   const canSend = message.trim().length > 0 && session !== null && !loading;
 
-  const sortedEvents = useMemo(() => {
-    if (!session) {
-      return [];
-    }
+  // Subscribe to SSE events when session is created
+  useEffect(() => {
+    if (!session) return;
 
-    return [...session.events].sort((a, b) =>
-      a.createdAt.localeCompare(b.createdAt),
-    );
-  }, [session]);
+    // Close previous connection if any
+    eventSourceRef.current?.close();
+
+    const es = new EventSource(`/api/sessions/${session.id}/events`);
+    eventSourceRef.current = es;
+
+    es.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        const traceEvent: TraceEvent = {
+          id: parsed.session_id ?? crypto.randomUUID(),
+          type: parsed.type ?? "agent_response",
+          level: parsed.type === "error" ? "error" : "info",
+          message:
+            typeof parsed.message === "string"
+              ? parsed.message
+              : parsed.type === "tool_use_summary" && typeof parsed.tool === "string"
+                ? `Tool: ${parsed.tool}`
+                : parsed.type === "turn_complete"
+                  ? "Turn complete."
+                  : parsed.type ?? "Event",
+          createdAt: new Date().toISOString(),
+        };
+        setLiveEvents((prev) => [...prev, traceEvent]);
+      } catch {
+        // ignore non-JSON
+      }
+    };
+
+    return () => {
+      es.close();
+      eventSourceRef.current = null;
+    };
+  }, [session?.id]);
+
+  // Merge DB events (from session) with live SSE events, deduplicated
+  const sortedEvents = useMemo(() => {
+    const dbEvents = session?.events ?? [];
+    const seenIds = new Set(dbEvents.map((e) => e.id));
+    const merged = [...dbEvents, ...liveEvents.filter((e) => !seenIds.has(e.id))];
+    return merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }, [session, liveEvents]);
 
   async function startSession(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();

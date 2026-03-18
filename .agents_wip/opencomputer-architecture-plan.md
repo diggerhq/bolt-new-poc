@@ -1,6 +1,6 @@
 # bolt-new-poc: OpenComputer + agents-api Architecture Plan
 
-## Status: DRAFT — 2026-03-18
+## Status: IN PROGRESS — 2026-03-18
 
 ---
 
@@ -12,10 +12,10 @@ Replace E2B with OpenComputer as the sandbox provider for the builder app. Inter
 
 ## Current State
 
-- **bolt-new-poc/web**: M0 skeleton with stubbed agent/sandbox. Sessions, messages, events in Supabase. WorkOS auth. Deployed on Vercel.
-- **agents-api**: Batch execution platform. One sandbox per execution, deleted on completion. No streaming, no persistent sessions. Manages agent versions/artifacts via R2.
-- **base360-checkin-agent**: Reference agent. Claude Agent SDK, deployed as agents-api version. Single-turn batch: read input JSON -> run agent -> write result JSON.
-- **OpenComputer SDK**: Full sandbox platform. Native `sandbox.agent.start()` API with WebSocket streaming events, multi-turn `sendPrompt()`, persistent sandboxes, checkpoints, preview URLs.
+- **bolt-new-poc/web**: OpenComputer sandbox integration wired. Sessions bootstrap real sandboxes, agent runs via `claude-agent-wrapper`, events stream via SSE to UI.
+- **bolt-new-poc/agent/**: System prompt + build-app skill. No code — config only, synced into sandbox.
+- **agents-api**: Not in the runtime path. Batch execution platform used by other agents. May grow session support later.
+- **OpenComputer SDK**: `@opencomputer/sdk` v0.5.12 installed in web/. Used for sandbox lifecycle, agent sessions, preview URLs.
 
 ---
 
@@ -46,36 +46,36 @@ The builder needs **interactive sessions**: persistent sandbox across many chat 
 
 ```
 bolt-new-poc/
-  agent/                    # Builder agent config (NEW) — synced into sandbox
+  agent/                    # Builder agent config — synced into sandbox
     prompt.md               # System prompt for the builder agent
     .claude/
       skills/
         build-app/SKILL.md  # Builder workflow skill
 
-  web/                       # Next.js app (EXISTING, modified)
+  web/                       # Next.js app
     src/
       lib/
         sandbox/
-          opencomputer.ts    # OpenComputer SDK adapter
-          session-manager.ts # Sandbox lifecycle per builder session
-          event-bridge.ts    # Stream sandbox events -> Supabase + SSE
+          opencomputer.ts    # Sandbox bootstrap, agent session management, preview URL
+          event-bridge.ts    # Persist agent events to DB + push to SSE subscribers
         builder/
-          store.ts           # (existing) DB operations
-          orchestrator.ts    # Session bootstrap + turn execution
+          store.ts           # DB operations, wired to sandbox orchestration
       app/
         api/
           sessions/
-            route.ts         # (existing, modified) Create session -> bootstrap sandbox
+            route.ts         # Create session -> bootstrap sandbox
             [sessionId]/
               messages/
-                route.ts     # (existing, modified) Send message -> trigger turn
+                route.ts     # Send message -> sendPrompt on agent session
               events/
-                route.ts     # (NEW) SSE endpoint for streaming events
+                route.ts     # SSE endpoint for real-time event streaming
+        builder/
+          builder-shell.tsx  # UI with EventSource for live trace timeline
 
   supabase/
     migrations/
-      ...existing...
-      NNNN_sandbox_state.sql # Add sandbox bookkeeping columns (NEW)
+      20260220223500_m0_core_schema.sql
+      20260318000000_sandbox_state.sql   # sandbox_id, agent_session_id, sandbox_status columns
 ```
 
 ---
@@ -237,33 +237,34 @@ ALTER TABLE builder_sessions
 
 ## Execution Plan (Build Order)
 
-### Phase 1: Agent config
+### Phase 1: Agent config — DONE
 
-- [ ] Create `agent/` directory
-- [ ] Write system prompt (`agent/prompt.md`)
-- [ ] Write build-app skill (`agent/.claude/skills/build-app/SKILL.md`)
+- [x] Create `agent/` directory
+- [x] Write system prompt (`agent/prompt.md`)
+- [x] Write build-app skill (`agent/.claude/skills/build-app/SKILL.md`)
 
-### Phase 2: OpenComputer integration in web backend
+### Phase 2: OpenComputer integration in web backend — DONE
 
-- [ ] Add `opencomputer` SDK dependency to web/
-- [ ] Create `lib/sandbox/opencomputer.ts` — thin wrapper around SDK
-- [ ] Create `lib/sandbox/session-manager.ts` — sandbox lifecycle (create, wake, kill, lookup)
-- [ ] Add sandbox columns to builder_sessions (migration)
-- [ ] Wire POST /api/sessions to create sandbox + start agent
-- [ ] Wire POST /api/sessions/:id/messages to sendPrompt on existing session
+- [x] Add `@opencomputer/sdk` dependency to web/
+- [x] Create `lib/sandbox/opencomputer.ts` — sandbox bootstrap, agent session management, preview URL
+- [x] Create `lib/sandbox/event-bridge.ts` — persist events to DB + in-memory SSE pub/sub
+- [x] Add sandbox columns to builder_sessions (migration applied)
+- [x] Wire POST /api/sessions to create sandbox + start agent
+- [x] Wire POST /api/sessions/:id/messages to sendPrompt on existing session
+- [x] Keep agent sessions alive in memory (Map) so WebSocket stays open
+- [x] Reattach to existing sandbox session on server restart
 
-### Phase 3: Event streaming
+### Phase 3: Event streaming — DONE
 
-- [ ] Create `lib/sandbox/event-bridge.ts` — translate agent events to session_events + SSE
-- [ ] Add GET /api/sessions/:id/events SSE endpoint
-- [ ] Update builder UI to consume SSE for real-time trace timeline
-- [ ] Update builder UI chat to show streaming assistant messages
+- [x] Add GET /api/sessions/:id/events SSE endpoint
+- [x] Update builder UI to consume SSE via EventSource for real-time trace timeline
+- [ ] Update builder UI chat to show streaming assistant messages (assistant events have content but not yet parsed into chat messages)
 
-### Phase 4: Preview
+### Phase 4: Preview — PARTIAL
 
-- [ ] Wire dev server startup in sandbox bootstrap
-- [ ] Persist preview URL from sandbox to builder_sessions
-- [ ] Update builder UI iframe to load real preview URL
+- [x] Create preview URL via `sandbox.createPreviewURL({ port: 3000 })` at bootstrap
+- [x] Persist preview URL to builder_sessions
+- [x] Builder UI iframe loads real sandbox preview URL
 - [ ] Handle dev server restart on sandbox wake
 
 ### Phase 5: Polish
@@ -291,12 +292,12 @@ The `OPENCOMPUTER_*` values can be copied from `agents-api/.env`.
 
 1. **Snapshot vs template**: Should we create a custom OpenComputer snapshot with Node.js project scaffold pre-installed (faster bootstrap) or scaffold fresh each time?
 
-2. **Agent session reconnection**: When the web backend restarts (Vercel cold start), can we reattach to an existing agent session in a running sandbox? OpenComputer's `sandbox.agent.attach(sessionId)` suggests yes.
+2. ~~**Agent session reconnection**~~: RESOLVED — `sandbox.agent.attach(sessionId)` works. Implemented in `sendMessage()` as fallback when in-memory session is lost.
 
-3. **Conversation context**: Does `claude-agent-wrapper` maintain conversation history across `sendPrompt()` calls within the same session? If so, no need to replay history. Need to verify.
+3. **Conversation context**: Does `claude-agent-wrapper` maintain conversation history across `sendPrompt()` calls within the same session? Wrapper tracks `claudeSessionId` and passes `resume` on subsequent calls, so yes — but needs testing.
 
 4. **Cost model**: Sandbox idle timeout vs hibernation. What's the cost profile? Should we aggressively hibernate idle sandboxes?
 
-5. **Vercel + WebSocket**: SSE works on Vercel, but the OpenComputer SDK uses WebSocket to receive events. The web backend (on Vercel) needs to maintain a WebSocket connection to the sandbox. Vercel serverless functions have 10s/60s timeouts — this may require a persistent backend (Fly.io, Railway) or a different streaming architecture. **This is a critical constraint to resolve early.**
+5. **Vercel + WebSocket**: SSE works on Vercel, but the backend holds a WebSocket to the sandbox for events. Vercel serverless has 10s/60s timeouts — in-memory session map won't survive. **For local dev this works. For production, need a persistent backend (Fly.io) or push event ingestion to a separate service.**
 
 6. **Should agents-api grow session support?**: If yes, the web backend could delegate everything to agents-api (including sandbox lifecycle) and just consume an SSE stream from agents-api. Cleaner separation but bigger agents-api change.
