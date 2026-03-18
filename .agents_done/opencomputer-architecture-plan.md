@@ -1,6 +1,9 @@
 # bolt-new-poc: OpenComputer + agents-api Architecture Plan
 
-## Status: IN PROGRESS — 2026-03-18
+## Status: DONE — 2026-03-18
+
+Core integration complete. Phases 1-3 done, phase 4 partial (preview works, wake handling deferred).
+Remaining work (phase 5: hibernation, error recovery, timeouts) is incremental polish, not architectural.
 
 ---
 
