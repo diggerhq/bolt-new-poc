@@ -6,11 +6,16 @@ import type { AuthUser } from "@/lib/auth/auth";
 import type {
   BuilderSession,
   ChatRole,
-  TraceEvent,
   TraceLevel,
   TraceType,
 } from "@/lib/builder/types";
 import { getDbPool, runInTransaction } from "@/lib/db/postgres";
+import {
+  bootstrapSandbox,
+  sendMessage as sendSandboxMessage,
+  ensurePreviewUrl,
+} from "@/lib/sandbox/opencomputer";
+import { createEventHandler } from "@/lib/sandbox/event-bridge";
 
 interface CreateBuilderSessionInput {
   prompt: string;
@@ -29,6 +34,9 @@ interface BuilderSessionRow {
   user_id: string;
   preview_url: string;
   status: string;
+  sandbox_id: string | null;
+  sandbox_agent_session_id: string | null;
+  sandbox_status: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -114,54 +122,6 @@ function toTitle(prompt: string): string {
   return compact[0]?.toUpperCase() + compact.slice(1);
 }
 
-function baseEvents(prompt: string, createdAt: string): TraceEvent[] {
-  return [
-    {
-      id: createId("evt"),
-      type: "session_started",
-      level: "info",
-      message: "Session created and orchestration started.",
-      createdAt,
-    },
-    {
-      id: createId("evt"),
-      type: "planning",
-      level: "info",
-      message: `Agent planned a first pass from prompt: "${prompt}".`,
-      createdAt,
-    },
-    {
-      id: createId("evt"),
-      type: "files_generated",
-      level: "info",
-      message: "Initial project files were generated.",
-      createdAt,
-    },
-    {
-      id: createId("evt"),
-      type: "dev_server_started",
-      level: "info",
-      message: "Dev server booted and exposed a preview route.",
-      createdAt,
-    },
-    {
-      id: createId("evt"),
-      type: "preview_ready",
-      level: "info",
-      message: "Preview is ready.",
-      createdAt,
-    },
-  ];
-}
-
-function buildAssistantReply(message: string): string {
-  return [
-    "Applied update:",
-    `- Interpreted request: "${message}"`,
-    "- Updated plan and simulated code edits in the sandbox adapter.",
-    "- Refreshed preview build for the current session.",
-  ].join("\n");
-}
 
 function toSessionStatus(value: string): BuilderSession["status"] {
   if (VALID_SESSION_STATUSES.has(value as BuilderSession["status"])) {
@@ -204,7 +164,9 @@ async function getSessionFromDatabase(
   const sessionResult = userId
     ? await pool.query<BuilderSessionRow>(
         `
-          select id, project_id::text as project_id, user_id, preview_url, status, created_at, updated_at
+          select id, project_id::text as project_id, user_id, preview_url, status,
+                 sandbox_id, sandbox_agent_session_id, sandbox_status,
+                 created_at, updated_at
           from builder_sessions
           where id = $1 and user_id = $2
           limit 1
@@ -213,7 +175,9 @@ async function getSessionFromDatabase(
       )
     : await pool.query<BuilderSessionRow>(
         `
-          select id, project_id::text as project_id, user_id, preview_url, status, created_at, updated_at
+          select id, project_id::text as project_id, user_id, preview_url, status,
+                 sandbox_id, sandbox_agent_session_id, sandbox_status,
+                 created_at, updated_at
           from builder_sessions
           where id = $1
           limit 1
@@ -325,10 +289,9 @@ export async function createBuilderSession(
   const prompt = sanitizePrompt(input.prompt);
   const sessionId = createId("session");
   const createdAt = nowIso();
-  const previewUrl = `/preview/${sessionId}`;
-  const events = baseEvents(prompt, createdAt);
   const title = toTitle(prompt);
 
+  // Create DB records first (with status "running" and sandbox_status "creating")
   await runInTransaction(async (client) => {
     await upsertUser(client, input.user);
 
@@ -342,88 +305,76 @@ export async function createBuilderSession(
     );
 
     const projectRow = projectInsert.rows[0];
-
-    if (!projectRow) {
-      throw new Error("Database create project returned no row.");
-    }
+    if (!projectRow) throw new Error("Database create project returned no row.");
 
     await client.query(
       `
-        insert into builder_sessions (id, project_id, user_id, preview_url, status, created_at, updated_at)
-        values ($1, $2::uuid, $3, $4, $5, $6, $6)
+        insert into builder_sessions (id, project_id, user_id, preview_url, status, sandbox_status, created_at, updated_at)
+        values ($1, $2::uuid, $3, $4, $5, $6, $7, $7)
       `,
-      [sessionId, projectRow.id, input.user.id, previewUrl, "ready", createdAt],
+      [sessionId, projectRow.id, input.user.id, "", "running", "creating", createdAt],
     );
 
-    const artifactSeeds = [
-      {
-        path: "app/page.tsx",
-        summary: "Landing page with builder shell.",
-      },
-      {
-        path: "app/api/sessions/route.ts",
-        summary: "Create-session endpoint for the builder flow.",
-      },
-    ];
+    await client.query(
+      `
+        insert into session_messages (id, session_id, role, content, created_at)
+        values ($1, $2, $3, $4, $5)
+      `,
+      [createId("msg"), sessionId, "user", prompt, createdAt],
+    );
 
-    for (const [position, artifact] of artifactSeeds.entries()) {
-      await client.query(
-        `
-          insert into project_artifacts (project_id, path, summary, position, created_at, updated_at)
-          values ($1::uuid, $2, $3, $4, $5, $5)
-        `,
-        [projectRow.id, artifact.path, artifact.summary, position, createdAt],
-      );
-    }
-
-    const initialMessages = [
-      {
-        id: createId("msg"),
-        role: "user",
-        content: prompt,
-      },
-      {
-        id: createId("msg"),
-        role: "assistant",
-        content:
-          "Session initialized. I generated a first-pass scaffold and started preview.",
-      },
-    ];
-
-    for (const message of initialMessages) {
-      await client.query(
-        `
-          insert into session_messages (id, session_id, role, content, created_at)
-          values ($1, $2, $3, $4, $5)
-        `,
-        [message.id, sessionId, message.role, message.content, createdAt],
-      );
-    }
-
-    for (const event of events) {
-      await client.query(
-        `
-          insert into session_events (id, session_id, type, level, message, created_at)
-          values ($1, $2, $3, $4, $5, $6)
-        `,
-        [
-          event.id,
-          sessionId,
-          event.type,
-          event.level,
-          event.message,
-          event.createdAt,
-        ],
-      );
-    }
+    await client.query(
+      `
+        insert into session_events (id, session_id, type, level, message, created_at)
+        values ($1, $2, $3, $4, $5, $6)
+      `,
+      [createId("evt"), sessionId, "session_started", "info", "Bootstrapping sandbox...", createdAt],
+    );
   });
 
-  const session = await getSessionFromDatabase(sessionId, input.user.id);
+  // Bootstrap sandbox + start agent (async — events stream via event bridge)
+  const onEvent = createEventHandler(sessionId);
 
-  if (!session) {
-    throw new Error("Session was created but could not be loaded.");
+  try {
+    const { handle } = await bootstrapSandbox(prompt, onEvent);
+
+    // Update session with sandbox details
+    const pool = getDbPool();
+    await pool.query(
+      `
+        update builder_sessions
+        set sandbox_id = $2,
+            sandbox_agent_session_id = $3,
+            sandbox_status = 'running',
+            preview_url = $4,
+            updated_at = now()
+        where id = $1
+      `,
+      [sessionId, handle.sandboxId, handle.agentSessionId, handle.previewUrl],
+    );
+  } catch (err) {
+    // Mark session as error if bootstrap fails
+    const pool = getDbPool();
+    await pool.query(
+      `
+        update builder_sessions
+        set status = 'error', sandbox_status = 'dead', updated_at = now()
+        where id = $1
+      `,
+      [sessionId],
+    );
+    await pool.query(
+      `
+        insert into session_events (id, session_id, type, level, message, created_at)
+        values ($1, $2, $3, $4, $5, now())
+      `,
+      [createId("evt"), sessionId, "error", "error", `Sandbox bootstrap failed: ${err instanceof Error ? err.message : String(err)}`],
+    );
+    // Still return the session (in error state) so the UI can show the failure
   }
 
+  const session = await getSessionFromDatabase(sessionId, input.user.id);
+  if (!session) throw new Error("Session was created but could not be loaded.");
   return session;
 }
 
@@ -443,120 +394,92 @@ export async function appendBuilderSessionMessage(
     throw new Error("Message is required for iteration.");
   }
 
-  const wasUpdated = await runInTransaction(async (client) => {
-    const sessionLookup = await client.query<{ project_id: string }>(
-      `
-        select project_id::text as project_id
-        from builder_sessions
-        where id = $1 and user_id = $2
-        limit 1
-      `,
-      [input.sessionId, input.user.id],
-    );
+  // Look up session + sandbox info
+  const pool = getDbPool();
+  const sessionLookup = await pool.query<{
+    sandbox_id: string | null;
+    sandbox_agent_session_id: string | null;
+    sandbox_status: string | null;
+  }>(
+    `
+      select sandbox_id, sandbox_agent_session_id, sandbox_status
+      from builder_sessions
+      where id = $1 and user_id = $2
+      limit 1
+    `,
+    [input.sessionId, input.user.id],
+  );
 
-    const sessionRow = sessionLookup.rows[0];
+  const row = sessionLookup.rows[0];
+  if (!row) return null;
 
-    if (!sessionRow) {
-      return false;
+  // Persist user message
+  const createdAt = nowIso();
+  await pool.query(
+    `
+      insert into session_messages (id, session_id, role, content, created_at)
+      values ($1, $2, $3, $4, $5)
+    `,
+    [createId("msg"), input.sessionId, "user", message, createdAt],
+  );
+
+  // Mark session as running
+  await pool.query(
+    `
+      update builder_sessions set status = 'running', updated_at = now()
+      where id = $1
+    `,
+    [input.sessionId],
+  );
+
+  // Send prompt to sandbox agent
+  if (row.sandbox_id && row.sandbox_agent_session_id && row.sandbox_status === "running") {
+    const onEvent = createEventHandler(input.sessionId);
+    try {
+      await sendSandboxMessage(
+        row.sandbox_id,
+        row.sandbox_agent_session_id,
+        message,
+        onEvent,
+      );
+      // Preview URL may now be available if the agent started the dev server
+      try {
+        const previewUrl = await ensurePreviewUrl(row.sandbox_id);
+        if (previewUrl) {
+          await pool.query(
+            `update builder_sessions set preview_url = $2, updated_at = now() where id = $1`,
+            [input.sessionId, previewUrl],
+          );
+        }
+      } catch {
+        // non-critical
+      }
+    } catch (err) {
+      await pool.query(
+        `
+          insert into session_events (id, session_id, type, level, message, created_at)
+          values ($1, $2, $3, $4, $5, now())
+        `,
+        [createId("evt"), input.sessionId, "error", "error", `Failed to send message: ${err instanceof Error ? err.message : String(err)}`],
+      );
+      await pool.query(
+        `update builder_sessions set status = 'error', updated_at = now() where id = $1`,
+        [input.sessionId],
+      );
     }
-
-    const createdAt = nowIso();
-
-    await client.query(
-      `
-        insert into session_messages (id, session_id, role, content, created_at)
-        values ($1, $2, $3, $4, $5)
-      `,
-      [createId("msg"), input.sessionId, "user", message, createdAt],
-    );
-
-    await client.query(
+  } else {
+    // No sandbox — persist as error
+    await pool.query(
       `
         insert into session_events (id, session_id, type, level, message, created_at)
-        values ($1, $2, $3, $4, $5, $6)
+        values ($1, $2, $3, $4, $5, now())
       `,
-      [
-        createId("evt"),
-        input.sessionId,
-        "message_received",
-        "info",
-        "Received a new chat instruction.",
-        createdAt,
-      ],
+      [createId("evt"), input.sessionId, "error", "error", "No active sandbox for this session."],
     );
-
-    await client.query(
-      `
-        insert into session_messages (id, session_id, role, content, created_at)
-        values ($1, $2, $3, $4, $5)
-      `,
-      [
-        createId("msg"),
-        input.sessionId,
-        "assistant",
-        buildAssistantReply(message),
-        createdAt,
-      ],
+    await pool.query(
+      `update builder_sessions set status = 'error', updated_at = now() where id = $1`,
+      [input.sessionId],
     );
-
-    await client.query(
-      `
-        insert into session_events (id, session_id, type, level, message, created_at)
-        values ($1, $2, $3, $4, $5, $6)
-      `,
-      [
-        createId("evt"),
-        input.sessionId,
-        "agent_response",
-        "info",
-        "Agent produced an iteration response.",
-        createdAt,
-      ],
-    );
-
-    const latestArtifact = await client.query<{ position: number }>(
-      `
-        select position
-        from project_artifacts
-        where project_id = $1::uuid
-        order by position desc
-        limit 1
-      `,
-      [sessionRow.project_id],
-    );
-
-    const nextPosition = (latestArtifact.rows[0]?.position ?? -1) + 1;
-    const artifactNumber = nextPosition + 1;
-
-    await client.query(
-      `
-        insert into project_artifacts (project_id, path, summary, position, created_at, updated_at)
-        values ($1::uuid, $2, $3, $4, $5, $5)
-      `,
-      [
-        sessionRow.project_id,
-        `app/feature-${artifactNumber}.tsx`,
-        "Simulated generated file from latest instruction.",
-        nextPosition,
-        createdAt,
-      ],
-    );
-
-    await client.query(
-      `
-        update builder_sessions
-        set status = $3,
-            updated_at = $4
-        where id = $1 and user_id = $2
-      `,
-      [input.sessionId, input.user.id, "ready", createdAt],
-    );
-
-    return true;
-  });
-
-  if (!wasUpdated) {
-    return null;
   }
 
   return getSessionFromDatabase(input.sessionId, input.user.id);
