@@ -1,9 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { AuthUser } from "@/lib/auth/auth";
-import type { BuilderSession, TraceEvent } from "@/lib/builder/types";
+import type { BuilderSession } from "@/lib/builder/types";
+
+// Raw agent event from SSE — preserve full structure
+interface AgentEvent {
+  type: string;
+  // assistant events
+  message?: {
+    content?: Array<{ type: string; text?: string; name?: string; input?: unknown }>;
+    [key: string]: unknown;
+  };
+  // tool_use_summary
+  tool?: string;
+  // result events
+  result?: string;
+  subtype?: string;
+  // error
+  error?: string;
+  [key: string]: unknown;
+}
 
 interface SessionResponse {
   session: BuilderSession;
@@ -13,14 +31,52 @@ interface BuilderShellProps {
   initialUser: AuthUser;
 }
 
+function extractEventContent(event: AgentEvent): string | null {
+  switch (event.type) {
+    case "assistant": {
+      const blocks = event.message?.content;
+      if (!Array.isArray(blocks)) return null;
+      const parts: string[] = [];
+      for (const block of blocks) {
+        if (block.type === "text" && block.text) {
+          parts.push(block.text);
+        } else if (block.type === "tool_use" && block.name) {
+          const inputStr = block.input
+            ? JSON.stringify(block.input).slice(0, 200)
+            : "";
+          parts.push(`${block.name}(${inputStr}${inputStr.length >= 200 ? "..." : ""})`);
+        }
+      }
+      return parts.join("\n") || null;
+    }
+    case "tool_use_summary":
+      return event.tool ? `Tool: ${event.tool}` : null;
+    case "result":
+      return event.result
+        ? `Result: ${String(event.result).slice(0, 300)}`
+        : "Done.";
+    case "turn_complete":
+      return null; // rendered as a divider
+    case "error":
+      return (typeof event.message === "string" ? event.message : null)
+        ?? (typeof event.error === "string" ? event.error : "Unknown error");
+    case "ready":
+    case "configured":
+      return null; // skip noise
+    default:
+      return typeof event.message === "string" ? event.message : null;
+  }
+}
+
 export function BuilderShell({ initialUser }: BuilderShellProps) {
   const [prompt, setPrompt] = useState("");
   const [message, setMessage] = useState("");
   const [session, setSession] = useState<BuilderSession | null>(null);
-  const [liveEvents, setLiveEvents] = useState<TraceEvent[]>([]);
+  const [liveEvents, setLiveEvents] = useState<AgentEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
 
   const canStart = prompt.trim().length > 0 && !loading;
   const canSend = message.trim().length > 0 && session !== null && !loading;
@@ -29,32 +85,17 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
   useEffect(() => {
     if (!session) return;
 
-    // Close previous connection if any
     eventSourceRef.current?.close();
 
     const es = new EventSource(`/api/sessions/${session.id}/events`);
     eventSourceRef.current = es;
 
-    es.onmessage = (event) => {
+    es.onmessage = (ev) => {
       try {
-        const parsed = JSON.parse(event.data);
-        const traceEvent: TraceEvent = {
-          id: parsed.session_id ?? crypto.randomUUID(),
-          type: parsed.type ?? "agent_response",
-          level: parsed.type === "error" ? "error" : "info",
-          message:
-            typeof parsed.message === "string"
-              ? parsed.message
-              : parsed.type === "tool_use_summary" && typeof parsed.tool === "string"
-                ? `Tool: ${parsed.tool}`
-                : parsed.type === "turn_complete"
-                  ? "Turn complete."
-                  : parsed.type ?? "Event",
-          createdAt: new Date().toISOString(),
-        };
-        setLiveEvents((prev) => [...prev, traceEvent]);
+        const parsed = JSON.parse(ev.data) as AgentEvent;
+        setLiveEvents((prev) => [...prev, parsed]);
       } catch {
-        // ignore non-JSON
+        // ignore
       }
     };
 
@@ -64,25 +105,23 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
     };
   }, [session?.id]);
 
-  // Merge DB events (from session) with live SSE events, deduplicated
-  const sortedEvents = useMemo(() => {
-    const dbEvents = session?.events ?? [];
-    const seenIds = new Set(dbEvents.map((e) => e.id));
-    const merged = [...dbEvents, ...liveEvents.filter((e) => !seenIds.has(e.id))];
-    return merged.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  }, [session, liveEvents]);
+  // Auto-scroll timeline
+  useEffect(() => {
+    if (timelineRef.current) {
+      timelineRef.current.scrollTop = timelineRef.current.scrollHeight;
+    }
+  }, [liveEvents]);
 
   async function startSession(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setLoading(true);
+    setLiveEvents([]);
 
     try {
       const response = await fetch("/api/sessions", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt }),
       });
 
@@ -94,11 +133,11 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
       setSession(data.session);
       setPrompt("");
     } catch (caughtError) {
-      const messageText =
+      setError(
         caughtError instanceof Error
           ? caughtError.message
-          : "Failed to start session";
-      setError(messageText);
+          : "Failed to start session",
+      );
     } finally {
       setLoading(false);
     }
@@ -106,9 +145,7 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
 
   async function sendMessage(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!session) {
-      return;
-    }
+    if (!session) return;
 
     setError(null);
     setLoading(true);
@@ -116,9 +153,7 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
     try {
       const response = await fetch(`/api/sessions/${session.id}/messages`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
       });
 
@@ -130,11 +165,11 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
       setSession(data.session);
       setMessage("");
     } catch (caughtError) {
-      const messageText =
+      setError(
         caughtError instanceof Error
           ? caughtError.message
-          : "Failed to send message";
-      setError(messageText);
+          : "Failed to send message",
+      );
     } finally {
       setLoading(false);
     }
@@ -143,25 +178,19 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
   return (
     <main className="min-h-screen px-4 py-5 sm:px-8 sm:py-8">
       <div className="mx-auto max-w-[1600px]">
-        <header className="mb-5 rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-4 sm:p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                Builder Console
-              </h1>
-              <p className="mt-1 text-sm text-[var(--text-muted)]">
-                Signed in as {initialUser.email}
-              </p>
-            </div>
-            <form action="/api/auth/sign-out" method="post">
-                <button
-                  type="submit"
-                  className="rounded-lg border border-slate-500/50 px-3 py-2 text-sm hover:bg-slate-800"
-                >
-                  Logout
-                </button>
-              </form>
+        <header className="mb-5 flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] px-5 py-3">
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight">Builder</h1>
+            <p className="text-xs text-[var(--text-muted)]">{initialUser.email}</p>
           </div>
+          <form action="/api/auth/sign-out" method="post">
+            <button
+              type="submit"
+              className="rounded border border-slate-600 px-2.5 py-1.5 text-xs hover:bg-slate-800"
+            >
+              Logout
+            </button>
+          </form>
         </header>
 
         {error ? (
@@ -170,117 +199,145 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
           </p>
         ) : null}
 
-        <section className="grid gap-4 lg:grid-cols-[1.2fr_1fr_1fr]">
-          <article className="rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-4 sm:p-5">
-            <h2 className="text-sm font-semibold tracking-wide text-cyan-100 uppercase">
-              Prompt + Chat
+        <section className="grid gap-4 lg:grid-cols-[1fr_1.2fr_1.2fr]">
+          {/* Prompt + Chat */}
+          <div className="flex flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-4">
+            <h2 className="mb-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+              Chat
             </h2>
 
             {!session ? (
-              <form className="mt-4 space-y-3" onSubmit={startSession}>
+              <form className="flex flex-1 flex-col gap-3" onSubmit={startSession}>
                 <textarea
                   value={prompt}
-                  onChange={(event) => setPrompt(event.target.value)}
-                  rows={5}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={4}
                   placeholder="Describe the app you want to build..."
-                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--card-bg-muted)] p-3 text-sm outline-none ring-cyan-300/40 focus:ring"
+                  className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--card-bg-muted)] p-3 text-sm outline-none ring-cyan-300/40 focus:ring"
                 />
                 <button
                   type="submit"
                   disabled={!canStart}
-                  className="inline-flex rounded-lg bg-cyan-400 px-4 py-2.5 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
                 >
-                  {loading ? "Starting..." : "Start Session"}
+                  {loading ? "Starting..." : "Start"}
                 </button>
               </form>
             ) : (
-              <div className="mt-4">
-                <p className="mb-2 text-xs text-[var(--text-muted)]">
-                  Session: {session.id}
-                </p>
-                <div className="max-h-[380px] space-y-3 overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--card-bg-muted)] p-3">
+              <div className="flex flex-1 flex-col">
+                <div className="flex-1 space-y-2 overflow-y-auto pr-1" style={{ maxHeight: "calc(100vh - 280px)" }}>
                   {session.messages.map((item) => (
                     <div
                       key={item.id}
-                      className="rounded-md border border-white/5 bg-slate-900/60 p-2"
+                      className={`rounded-lg px-3 py-2 text-sm ${
+                        item.role === "user"
+                          ? "ml-8 bg-cyan-900/30 text-cyan-100"
+                          : "mr-8 bg-slate-800/60 text-slate-200"
+                      }`}
                     >
-                      <p className="text-[11px] font-semibold tracking-wide text-cyan-200 uppercase">
-                        {item.role}
-                      </p>
-                      <p className="mt-1 whitespace-pre-wrap text-sm text-slate-200">
-                        {item.content}
-                      </p>
+                      <p className="whitespace-pre-wrap">{item.content}</p>
                     </div>
                   ))}
                 </div>
                 <form className="mt-3 flex gap-2" onSubmit={sendMessage}>
                   <input
                     value={message}
-                    onChange={(event) => setMessage(event.target.value)}
+                    onChange={(e) => setMessage(e.target.value)}
                     placeholder="Ask the agent to iterate..."
                     className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--card-bg-muted)] px-3 py-2 text-sm outline-none ring-cyan-300/40 focus:ring"
                   />
                   <button
                     type="submit"
                     disabled={!canSend}
-                    className="rounded-lg bg-cyan-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg bg-cyan-400 px-3 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50"
                   >
-                    {loading ? "Sending..." : "Send"}
+                    {loading ? "..." : "Send"}
                   </button>
                 </form>
               </div>
             )}
-          </article>
+          </div>
 
-          <article className="rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-4 sm:p-5">
-            <h2 className="text-sm font-semibold tracking-wide text-cyan-100 uppercase">
-              Trace Timeline
+          {/* Trace Timeline */}
+          <div className="flex flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-4">
+            <h2 className="mb-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">
+              Agent Activity
             </h2>
             {!session ? (
-              <p className="mt-4 text-sm text-[var(--text-muted)]">
-                Start a session to populate trace events.
+              <p className="text-sm text-[var(--text-muted)]">
+                Start a session to see agent activity.
               </p>
             ) : (
-              <ol className="mt-4 max-h-[460px] space-y-2 overflow-y-auto pr-1">
-                {sortedEvents.map((eventItem) => (
-                  <li
-                    key={eventItem.id}
-                    className="rounded-lg border border-[var(--border)] bg-[var(--card-bg-muted)] p-3"
-                  >
-                    <p className="text-[11px] tracking-wide text-cyan-200 uppercase">
-                      {eventItem.type}
-                    </p>
-                    <p className="mt-1 text-sm">{eventItem.message}</p>
-                    <p className="mt-2 text-xs text-[var(--text-muted)]">
-                      {new Date(eventItem.createdAt).toLocaleTimeString()}
-                    </p>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </article>
+              <div
+                ref={timelineRef}
+                className="flex-1 space-y-0.5 overflow-y-auto font-mono text-xs"
+                style={{ maxHeight: "calc(100vh - 240px)" }}
+              >
+                {liveEvents.length === 0 && (
+                  <p className="text-slate-500">Waiting for agent...</p>
+                )}
+                {liveEvents.map((ev, i) => {
+                  if (ev.type === "ready" || ev.type === "configured") return null;
 
-          <article className="rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-4 sm:p-5">
-            <h2 className="text-sm font-semibold tracking-wide text-cyan-100 uppercase">
+                  if (ev.type === "turn_complete") {
+                    return (
+                      <div key={i} className="my-2 border-t border-slate-700/50" />
+                    );
+                  }
+
+                  const content = extractEventContent(ev);
+                  if (!content) return null;
+
+                  const isError = ev.type === "error";
+                  const isToolCall = ev.type === "assistant" && content.includes("(");
+                  const isText = ev.type === "assistant" && !isToolCall;
+
+                  return (
+                    <div
+                      key={i}
+                      className={`rounded px-2 py-1 leading-relaxed ${
+                        isError
+                          ? "bg-rose-900/20 text-rose-300"
+                          : isToolCall
+                            ? "bg-amber-900/10 text-amber-200/80"
+                            : isText
+                              ? "text-slate-300"
+                              : "text-slate-400"
+                      }`}
+                    >
+                      <span className="whitespace-pre-wrap break-all">{content}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Preview */}
+          <div className="flex flex-col rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-4">
+            <h2 className="mb-3 text-xs font-semibold tracking-wide text-slate-400 uppercase">
               Preview
             </h2>
             {!session ? (
-              <p className="mt-4 text-sm text-[var(--text-muted)]">
-                Preview appears after the initial scaffold is created.
+              <p className="text-sm text-[var(--text-muted)]">
+                Preview appears after the scaffold is created.
               </p>
             ) : (
-              <div className="mt-4">
-                <p className="mb-2 text-xs text-[var(--text-muted)]">
-                  {session.previewUrl}
-                </p>
+              <>
+                {session.previewUrl && (
+                  <p className="mb-2 truncate text-[10px] text-slate-500">
+                    {session.previewUrl}
+                  </p>
+                )}
                 <iframe
-                  title="M0 preview"
-                  src={session.previewUrl}
-                  className="h-[460px] w-full rounded-lg border border-[var(--border)] bg-slate-950"
+                  title="Preview"
+                  src={session.previewUrl || "about:blank"}
+                  className="flex-1 rounded-lg border border-[var(--border)] bg-slate-950"
+                  style={{ minHeight: "calc(100vh - 260px)" }}
                 />
-              </div>
+              </>
             )}
-          </article>
+          </div>
         </section>
       </div>
     </main>

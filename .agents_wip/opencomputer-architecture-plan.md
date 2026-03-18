@@ -258,7 +258,8 @@ ALTER TABLE builder_sessions
 
 - [x] Add GET /api/sessions/:id/events SSE endpoint
 - [x] Update builder UI to consume SSE via EventSource for real-time trace timeline
-- [ ] Update builder UI chat to show streaming assistant messages (assistant events have content but not yet parsed into chat messages)
+- [x] Parse rich agent events: assistant text, tool calls with args, errors, turn dividers
+- [x] Compact chat-like UI: monospace agent activity log, color-coded by event type, auto-scroll
 
 ### Phase 4: Preview — PARTIAL
 
