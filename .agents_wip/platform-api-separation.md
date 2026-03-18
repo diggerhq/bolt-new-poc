@@ -43,7 +43,7 @@ Extract sandbox orchestration, agent session management, and event streaming out
 
 Base URL: `http://localhost:8081` (local) / `https://bolt-platform.fly.dev` (production)
 
-Auth: API key via `Authorization: Bearer <key>` header. The Next.js app authenticates users via WorkOS, then calls the platform API with a service-level API key. User identity is passed as a header or body field.
+Auth: OpenComputer API key via `X-API-Key: osb_...` header (same key used for sandbox operations). No separate platform auth — the key validates itself when sandbox operations are attempted. The Next.js app authenticates users via WorkOS, then calls the platform API with the org's OpenComputer API key. User identity is passed in request body.
 
 ### Endpoints
 
@@ -157,8 +157,9 @@ Response (200): { "id": "session_abc123", "status": "ended" }
 The existing code in `web/src/lib/sandbox/` and `web/src/lib/builder/` moves almost as-is. The main changes:
 - Remove `"server-only"` imports (not a Next.js module)
 - Replace Next.js route handlers with Express/Hono handlers
-- Remove WorkOS auth checks from handlers (replaced by API key auth)
+- Replace WorkOS auth with OpenComputer API key validation middleware
 - Accept `user_id` from request body/params instead of `getCurrentUser()`
+- Pass the caller's API key through to OpenComputer SDK calls (no hardcoded key)
 
 ### Directory structure
 
@@ -174,7 +175,7 @@ platform/
       store.ts            # Session orchestration (from web/src/lib/builder/)
       db.ts               # Postgres pool (from web/src/lib/db/)
       types.ts            # Shared types (from web/src/lib/builder/)
-      auth.ts             # API key validation middleware
+      auth.ts             # OpenComputer API key extraction middleware
   package.json
   tsconfig.json
   Dockerfile
@@ -191,11 +192,11 @@ platform/
 web/src/lib/platform-client.ts
 ```
 
-Thin HTTP client that calls the platform API:
+Thin HTTP client that calls the platform API. Passes `X-API-Key: osb_...` on every request.
 - `createSession(prompt, user)` → `POST /v1/sessions`
 - `getSession(sessionId, userId)` → `GET /v1/sessions/:id?user_id=...`
 - `sendMessage(sessionId, message, userId)` → `POST /v1/sessions/:id/messages`
-- `getEventsUrl(sessionId, userId)` → returns SSE URL for EventSource
+- `getEventsUrl(sessionId, userId)` → returns SSE URL with `?api_key=osb_...` for direct client connection
 
 ### Route changes
 
@@ -222,7 +223,7 @@ Two options for the events endpoint:
 - Works on Vercel if the upstream connection drives the response (streaming response, not held open by the server)
 - More complex but keeps auth centralized
 
-**Recommendation**: Start with Option A for simplicity. Platform API validates a session-scoped token that the web app generates.
+**Recommendation**: Start with Option A for simplicity. Client passes the OpenComputer API key as a query param (`?api_key=osb_...`) on the EventSource URL — same pattern OpenComputer uses for WebSocket auth.
 
 ---
 
@@ -247,12 +248,12 @@ Keep in `web/src/`:
 ### Platform API
 ```
 PORT=8081
-DATABASE_URL=postgresql://...          # Same Supabase
-OPENCOMPUTER_API_KEY=osb_...           # Sandbox operations
+DATABASE_URL=postgresql://...          # Session state storage
 OPENCOMPUTER_API_URL=https://app.opencomputer.dev
-ANTHROPIC_API_KEY=sk-ant-...           # Passed into sandboxes
-PLATFORM_API_KEY=secret_...            # For authenticating web app requests
+ANTHROPIC_API_KEY=sk-ant-...           # Passed into sandboxes for Claude
 ```
+
+No `OPENCOMPUTER_API_KEY` in platform env — the caller passes it per-request via `X-API-Key` header and the platform forwards it to OpenComputer SDK calls.
 
 ### Next.js App (updated)
 ```
@@ -260,10 +261,10 @@ WORKOS_API_KEY=...                     # Auth (unchanged)
 WORKOS_CLIENT_ID=...                   # Auth (unchanged)
 WORKOS_COOKIE_PASSWORD=...             # Auth (unchanged)
 PLATFORM_API_URL=http://localhost:8081 # Platform API base URL
-PLATFORM_API_KEY=secret_...            # Matches platform API
+OPENCOMPUTER_API_KEY=osb_...           # Passed to platform API on every request
 ```
 
-Removed from web app: `DATABASE_URL`, `OPENCOMPUTER_API_KEY`, `OPENCOMPUTER_API_URL`, `ANTHROPIC_API_KEY`
+Removed from web app: `DATABASE_URL`, `OPENCOMPUTER_API_URL`, `ANTHROPIC_API_KEY`
 
 ---
 
@@ -295,7 +296,7 @@ Removed from web app: `DATABASE_URL`, `OPENCOMPUTER_API_KEY`, `OPENCOMPUTER_API_
 
 1. **Shared DB or API-only?** — For now, platform API owns the DB and web app has no direct DB access. This is the clean path. If web app needs to read session data without going through platform API (e.g. for SSR), we can add read-only DB access later.
 
-2. **Auth model** — Service-level API key is simplest. But for direct client→platform SSE (Option A), we need per-session tokens. Could be a short-lived JWT the web app mints and passes to the client.
+2. **ANTHROPIC_API_KEY ownership** — Currently the platform API holds it and injects it into sandboxes. Should this also be per-caller (passed via header like the OpenComputer key)? Probably yes long-term (each org brings their own Claude key), but for now a single key in the platform env is simpler.
 
 3. **Shared types** — `types.ts` is used by both platform and web app. Options: (a) duplicate and keep in sync, (b) publish as a small npm package, (c) put in a shared workspace root. For now, duplicate — it's small.
 
