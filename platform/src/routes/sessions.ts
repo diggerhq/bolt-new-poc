@@ -3,6 +3,7 @@ import { streamSSE } from "hono/streaming";
 import { createBuilderSession, getBuilderSession, appendMessage } from "../lib/store.js";
 import { subscribe } from "../lib/event-bridge.js";
 import { killSandbox } from "../lib/opencomputer.js";
+import { getDbPool } from "../lib/db.js";
 
 const app = new Hono();
 
@@ -66,6 +67,23 @@ app.get("/:sessionId/events", async (c) => {
   if (!session) return c.json({ error: { type: "not_found", message: "Session not found" } }, 404);
 
   return streamSSE(c, async (stream) => {
+    // Replay existing events from DB so client catches up
+    try {
+      const pool = getDbPool();
+      const result = await pool.query<{ metadata: unknown }>(
+        `SELECT metadata FROM session_events WHERE session_id = $1 ORDER BY created_at ASC, id ASC`,
+        [sessionId],
+      );
+      for (const row of result.rows) {
+        if (row.metadata && typeof row.metadata === "object") {
+          await stream.writeSSE({ data: JSON.stringify(row.metadata) });
+        }
+      }
+    } catch (err) {
+      console.error("[sse] failed to replay events:", err);
+    }
+
+    // Subscribe to live events going forward
     const unsubscribe = subscribe(sessionId, (event) => {
       stream.writeSSE({ data: JSON.stringify(event) }).catch(() => {});
     });
