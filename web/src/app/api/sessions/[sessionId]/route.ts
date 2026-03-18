@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/auth";
-import { getSession } from "@/lib/platform-client";
+import { getSession, getEventsUrl } from "@/lib/platform-client";
 
 interface SessionRouteParams {
   params: Promise<{
@@ -21,5 +21,5 @@ export async function GET(_request: Request, { params }: SessionRouteParams) {
     return Response.json({ error: "Session not found." }, { status: 404 });
   }
 
-  return Response.json({ session });
+  return Response.json({ session, eventsUrl: getEventsUrl(sessionId) });
 }

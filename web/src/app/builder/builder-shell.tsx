@@ -30,6 +30,7 @@ interface SessionResponse {
 
 interface BuilderShellProps {
   initialUser: AuthUser;
+  initialSessionId?: string;
 }
 
 function extractEventContent(event: AgentEvent): string | null {
@@ -69,7 +70,7 @@ function extractEventContent(event: AgentEvent): string | null {
   }
 }
 
-export function BuilderShell({ initialUser }: BuilderShellProps) {
+export function BuilderShell({ initialUser, initialSessionId }: BuilderShellProps) {
   const [prompt, setPrompt] = useState("");
   const [message, setMessage] = useState("");
   const [session, setSession] = useState<BuilderSession | null>(null);
@@ -82,6 +83,26 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
 
   const canStart = prompt.trim().length > 0 && !loading;
   const canSend = message.trim().length > 0 && session !== null && !loading;
+
+  // Restore session from URL on mount
+  useEffect(() => {
+    if (!initialSessionId) return;
+
+    setLoading(true);
+    fetch(`/api/sessions/${initialSessionId}`)
+      .then((resp) => {
+        if (!resp.ok) throw new Error("Session not found");
+        return resp.json() as Promise<SessionResponse>;
+      })
+      .then((data) => {
+        setSession(data.session);
+        if (data.eventsUrl) setEventsUrl(data.eventsUrl);
+      })
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "Failed to restore session");
+      })
+      .finally(() => setLoading(false));
+  }, [initialSessionId]);
 
   // Subscribe to SSE events directly from platform API
   useEffect(() => {
@@ -134,6 +155,7 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
       setSession(data.session);
       if (data.eventsUrl) setEventsUrl(data.eventsUrl);
       setPrompt("");
+      window.history.pushState(null, "", `/builder/${data.session.id}`);
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
