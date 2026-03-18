@@ -25,6 +25,7 @@ interface AgentEvent {
 
 interface SessionResponse {
   session: BuilderSession;
+  eventsUrl?: string;
 }
 
 interface BuilderShellProps {
@@ -72,6 +73,7 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
   const [prompt, setPrompt] = useState("");
   const [message, setMessage] = useState("");
   const [session, setSession] = useState<BuilderSession | null>(null);
+  const [eventsUrl, setEventsUrl] = useState<string | null>(null);
   const [liveEvents, setLiveEvents] = useState<AgentEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,14 +83,13 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
   const canStart = prompt.trim().length > 0 && !loading;
   const canSend = message.trim().length > 0 && session !== null && !loading;
 
-  // Subscribe to SSE events when session is created
+  // Subscribe to SSE events directly from platform API
   useEffect(() => {
-    if (!session) return;
+    if (!eventsUrl) return;
 
     eventSourceRef.current?.close();
 
-    const es = new EventSource(`/api/sessions/${session.id}/events`);
-    eventSourceRef.current = es;
+    const es = new EventSource(eventsUrl);
 
     es.onmessage = (ev) => {
       try {
@@ -103,7 +104,7 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
       es.close();
       eventSourceRef.current = null;
     };
-  }, [session?.id]);
+  }, [eventsUrl]);
 
   // Auto-scroll timeline
   useEffect(() => {
@@ -131,6 +132,7 @@ export function BuilderShell({ initialUser }: BuilderShellProps) {
 
       const data = (await response.json()) as SessionResponse;
       setSession(data.session);
+      if (data.eventsUrl) setEventsUrl(data.eventsUrl);
       setPrompt("");
     } catch (caughtError) {
       setError(

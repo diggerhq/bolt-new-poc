@@ -1,11 +1,8 @@
-import "server-only";
-
 import type { AgentEvent } from "@opencomputer/sdk";
-import { getDbPool } from "@/lib/db/postgres";
+import { getDbPool } from "./db.js";
 
 type Subscriber = (event: AgentEvent) => void;
 
-// In-memory subscriber map: sessionId -> Set of SSE push callbacks
 const subscribers = new Map<string, Set<Subscriber>>();
 
 export function subscribe(sessionId: string, cb: Subscriber): () => void {
@@ -18,9 +15,7 @@ export function subscribe(sessionId: string, cb: Subscriber): () => void {
 
   return () => {
     subs!.delete(cb);
-    if (subs!.size === 0) {
-      subscribers.delete(sessionId);
-    }
+    if (subs!.size === 0) subscribers.delete(sessionId);
   };
 }
 
@@ -28,11 +23,7 @@ function notifySubscribers(sessionId: string, event: AgentEvent): void {
   const subs = subscribers.get(sessionId);
   if (!subs) return;
   for (const cb of subs) {
-    try {
-      cb(event);
-    } catch {
-      // subscriber error — don't crash the bridge
-    }
+    try { cb(event); } catch { /* subscriber error */ }
   }
 }
 
@@ -51,16 +42,11 @@ function mapEventLevel(event: AgentEvent): string {
 
 function eventMessage(event: AgentEvent): string {
   if (typeof event.message === "string") return event.message;
-  if (event.type === "assistant" && event.message && typeof (event.message as { content?: unknown }).content === "string") {
-    return ((event.message as { content: string }).content).slice(0, 500);
-  }
-  if (event.type === "tool_use_summary" && typeof event.tool === "string") {
-    return `Tool: ${event.tool}`;
-  }
   if (event.type === "turn_complete") return "Turn complete.";
   if (event.type === "ready") return "Agent ready.";
   if (event.type === "configured") return "Agent configured.";
-  if (event.type === "error" && typeof event.message === "string") return event.message;
+  if (event.type === "tool_use_summary" && typeof event.tool === "string")
+    return `Tool: ${event.tool}`;
   return event.type ?? "Unknown event";
 }
 
@@ -68,7 +54,6 @@ export function createEventHandler(sessionId: string) {
   return async (event: AgentEvent): Promise<void> => {
     const pool = getDbPool();
 
-    // 1. Persist to database
     try {
       await pool.query(
         `INSERT INTO session_events (id, session_id, type, level, message, metadata, created_at)
@@ -86,7 +71,6 @@ export function createEventHandler(sessionId: string) {
       console.error("[event-bridge] failed to persist event:", err);
     }
 
-    // 2. Update session status on turn completion
     if (event.type === "turn_complete") {
       try {
         await pool.query(
@@ -98,7 +82,6 @@ export function createEventHandler(sessionId: string) {
       }
     }
 
-    // 3. Push to SSE subscribers
     notifySubscribers(sessionId, event);
   };
 }

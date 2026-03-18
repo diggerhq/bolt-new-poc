@@ -1,27 +1,15 @@
-import "server-only";
-
 import { Sandbox, type AgentSession, type AgentEvent } from "@opencomputer/sdk";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const AGENT_DIR = path.resolve(process.cwd(), "..", "agent");
-const SANDBOX_TIMEOUT = 3600; // 1 hour idle
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const AGENT_DIR = process.env.AGENT_DIR ?? path.resolve(__dirname, "..", "..", "..", "agent");
+const SANDBOX_TIMEOUT = 3600;
 const DEV_SERVER_PORT = 3000;
 
-// Keep agent sessions alive in memory so the WebSocket stays open
-// and events continue to flow. Key: builder session ID.
+// Keep agent sessions alive so WebSocket stays open. Key: builder session ID.
 const activeSessions = new Map<string, AgentSession>();
-
-function getConfig() {
-  const apiKey = process.env.OPENCOMPUTER_API_KEY;
-  const apiUrl = process.env.OPENCOMPUTER_API_URL ?? "https://app.opencomputer.dev";
-  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
-
-  if (!apiKey) throw new Error("OPENCOMPUTER_API_KEY is required");
-  if (!anthropicApiKey) throw new Error("ANTHROPIC_API_KEY is required");
-
-  return { apiKey, apiUrl, anthropicApiKey };
-}
 
 function loadSystemPrompt(): string {
   const promptPath = path.join(AGENT_DIR, "prompt.md");
@@ -37,11 +25,13 @@ export interface SandboxHandle {
 export async function bootstrapSandbox(
   builderSessionId: string,
   prompt: string,
+  apiKey: string,
   onEvent: (event: AgentEvent) => void,
 ): Promise<SandboxHandle> {
-  const { apiKey, apiUrl, anthropicApiKey } = getConfig();
+  const apiUrl = process.env.OPENCOMPUTER_API_URL ?? "https://app.opencomputer.dev";
+  const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicApiKey) throw new Error("ANTHROPIC_API_KEY is required");
 
-  // 1. Create sandbox
   const sandbox = await Sandbox.create({
     apiKey,
     apiUrl,
@@ -51,13 +41,9 @@ export async function bootstrapSandbox(
   });
 
   try {
-    // 2. Sync agent skills into sandbox
     await syncAgentConfig(sandbox);
-
-    // 3. Scaffold project workspace
     await sandbox.exec.run("mkdir -p /workspace/app", { timeout: 10 });
 
-    // 4. Start agent session with the user's prompt
     const systemPrompt = loadSystemPrompt();
     const agentSession = await sandbox.agent.start({
       prompt,
@@ -70,21 +56,15 @@ export async function bootstrapSandbox(
       },
     });
 
-    // Keep the session alive in memory
     activeSessions.set(builderSessionId, agentSession);
+    agentSession.done.then(() => activeSessions.delete(builderSessionId));
 
-    // Clean up when the agent process exits
-    agentSession.done.then(() => {
-      activeSessions.delete(builderSessionId);
-    });
-
-    // 5. Get preview URL
     let previewUrl = "";
     try {
       const preview = await sandbox.createPreviewURL({ port: DEV_SERVER_PORT });
       previewUrl = `https://${preview.hostname}`;
     } catch {
-      // Preview URL may fail if dev server isn't up yet — that's ok
+      // dev server not up yet
     }
 
     return {
@@ -103,14 +83,13 @@ export async function sendMessage(
   sandboxId: string,
   agentSessionId: string,
   message: string,
+  apiKey: string,
   onEvent: (event: AgentEvent) => void,
 ): Promise<void> {
-  // Try to reuse the in-memory session first
   let session = activeSessions.get(builderSessionId);
 
   if (!session) {
-    // Reattach if we lost the in-memory reference (e.g. server restart)
-    const { apiKey, apiUrl } = getConfig();
+    const apiUrl = process.env.OPENCOMPUTER_API_URL ?? "https://app.opencomputer.dev";
     const sandbox = await Sandbox.connect(sandboxId, { apiKey, apiUrl });
     session = await sandbox.agent.attach(agentSessionId, {
       onEvent,
@@ -119,37 +98,20 @@ export async function sendMessage(
       },
     });
     activeSessions.set(builderSessionId, session);
-    session.done.then(() => {
-      activeSessions.delete(builderSessionId);
-    });
+    session.done.then(() => activeSessions.delete(builderSessionId));
   }
 
   session.sendPrompt(message);
 }
 
-export async function ensurePreviewUrl(sandboxId: string): Promise<string> {
-  const { apiKey, apiUrl } = getConfig();
-  const sandbox = await Sandbox.connect(sandboxId, { apiKey, apiUrl });
-
-  const previews = await sandbox.listPreviewURLs();
-  const existing = previews.find((p) => p.port === DEV_SERVER_PORT);
-  if (existing) {
-    return `https://${existing.hostname}`;
-  }
-
-  const preview = await sandbox.createPreviewURL({ port: DEV_SERVER_PORT });
-  return `https://${preview.hostname}`;
-}
-
-export async function killSandbox(sandboxId: string): Promise<void> {
-  const { apiKey, apiUrl } = getConfig();
+export async function killSandbox(sandboxId: string, apiKey: string): Promise<void> {
+  const apiUrl = process.env.OPENCOMPUTER_API_URL ?? "https://app.opencomputer.dev";
   const sandbox = await Sandbox.connect(sandboxId, { apiKey, apiUrl });
   await sandbox.kill();
 }
 
 async function syncAgentConfig(sandbox: Sandbox): Promise<void> {
   const skillPath = path.join(AGENT_DIR, ".claude", "skills", "build-app", "SKILL.md");
-
   if (fs.existsSync(skillPath)) {
     const content = fs.readFileSync(skillPath, "utf-8");
     await sandbox.files.makeDir("/workspace/agent/.claude/skills/build-app");

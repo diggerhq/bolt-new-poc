@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { requireCurrentUser } from "@/lib/auth/auth";
-import { getBuilderSession } from "@/lib/builder/store";
+import { getSession } from "@/lib/platform-client";
 
 interface PreviewPageProps {
   params: Promise<{
@@ -13,7 +13,7 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
   const user = await requireCurrentUser();
 
   const { sessionId } = await params;
-  const session = await getBuilderSession(sessionId, user.id);
+  const session = await getSession(sessionId, user.id);
 
   if (!session) {
     notFound();
@@ -39,7 +39,7 @@ export default async function PreviewPage({ params }: PreviewPageProps) {
         <section className="mt-5 rounded-xl border border-slate-700 bg-slate-950/60 p-4">
           <h2 className="text-sm font-semibold text-cyan-100">Generated Files</h2>
           <ul className="mt-2 space-y-2 text-sm text-slate-200">
-            {session.project.artifacts.map((artifact) => (
+            {session.project.artifacts.map((artifact: { path: string; summary: string }) => (
               <li key={artifact.path} className="rounded-md bg-slate-900 p-2">
                 <p className="font-mono text-xs text-cyan-200">{artifact.path}</p>
                 <p className="mt-1 text-sm text-slate-300">{artifact.summary}</p>

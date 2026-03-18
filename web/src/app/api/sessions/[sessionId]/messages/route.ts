@@ -1,13 +1,8 @@
 import { getCurrentUser } from "@/lib/auth/auth";
-import {
-  appendBuilderSessionMessage,
-  getBuilderSession,
-} from "@/lib/builder/store";
+import { sendMessage, getSession } from "@/lib/platform-client";
 
 interface SessionMessagesRouteParams {
-  params: Promise<{
-    sessionId: string;
-  }>;
+  params: Promise<{ sessionId: string }>;
 }
 
 interface AppendMessageBody {
@@ -19,7 +14,6 @@ export async function POST(
   { params }: SessionMessagesRouteParams,
 ) {
   const user = await getCurrentUser();
-
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -35,21 +29,12 @@ export async function POST(
   }
 
   const { sessionId } = await params;
-  const session = await getBuilderSession(sessionId, user.id);
+  const session = await getSession(sessionId, user.id);
 
   if (!session) {
     return Response.json({ error: "Session not found." }, { status: 404 });
   }
 
-  const updatedSession = await appendBuilderSessionMessage({
-    sessionId,
-    message,
-    user,
-  });
-
-  if (!updatedSession) {
-    return Response.json({ error: "Session not found." }, { status: 404 });
-  }
-
+  const updatedSession = await sendMessage(sessionId, message, user.id);
   return Response.json({ session: updatedSession });
 }

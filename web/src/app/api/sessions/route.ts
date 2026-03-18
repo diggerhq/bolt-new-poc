@@ -1,5 +1,5 @@
-import { createBuilderSession } from "@/lib/builder/store";
 import { getCurrentUser } from "@/lib/auth/auth";
+import { createSession, getEventsUrl } from "@/lib/platform-client";
 import { getStackModes } from "@/lib/stack-modes";
 
 interface CreateSessionBody {
@@ -8,7 +8,6 @@ interface CreateSessionBody {
 
 export async function POST(request: Request) {
   const user = await getCurrentUser();
-
   if (!user) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -23,13 +22,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const session = await createBuilderSession({
-    prompt,
-    user,
-  });
+  const session = await createSession(prompt, user);
 
   return Response.json({
     session,
+    eventsUrl: getEventsUrl(session.id),
     stackModes: getStackModes(),
   });
 }
