@@ -1,6 +1,10 @@
 # Platform API Separation Plan
 
-## Status: DRAFT — 2026-03-18
+## Status: DONE — 2026-03-18
+
+Deployed to Fly.io as `bolt-platform` (Mohamed's org). Live at:
+- `https://bolt-platform.fly.dev` (Fly default)
+- `https://api.opencomputer.dev` (custom domain, A + AAAA + ACME challenge on Cloudflare)
 
 ---
 
@@ -270,25 +274,24 @@ Removed from web app: `DATABASE_URL`, `OPENCOMPUTER_API_URL`, `ANTHROPIC_API_KEY
 
 ## Execution Plan
 
-### Phase 1: Scaffold platform service
-- [ ] Create `platform/` directory with package.json, tsconfig, Dockerfile
-- [ ] Set up Hono (lightweight HTTP framework) with health check
-- [ ] Move DB, types, store, opencomputer, event-bridge code
-- [ ] Implement API key auth middleware
-- [ ] Implement session routes (create, get, messages, events, delete)
-- [ ] Test locally: platform API on :8081
+### Phase 1: Scaffold platform service — DONE
+- [x] Create `platform/` directory with package.json, tsconfig, Dockerfile
+- [x] Set up Hono with health check, CORS, error handling
+- [x] Move DB, types, store, opencomputer, event-bridge code
+- [x] OpenComputer API key passthrough auth (X-API-Key header)
+- [x] Session routes: create, get, messages, events (SSE with DB replay), delete
 
-### Phase 2: Convert Next.js to consumer
-- [ ] Create `platform-client.ts` in web/
-- [ ] Rewrite API routes to proxy through platform client
-- [ ] Remove sandbox/db dependencies from web/
-- [ ] Point builder UI EventSource at platform API (or proxy)
-- [ ] Test locally: web on :3000 talking to platform on :8081
+### Phase 2: Convert Next.js to consumer — DONE
+- [x] Create `platform-client.ts` in web/
+- [x] Rewrite API routes to proxy through platform client
+- [x] Remove pg, @opencomputer/sdk, store.ts, sandbox/, db/ from web
+- [x] EventSource connects directly to platform API (Option A)
 
-### Phase 3: Deploy
-- [ ] Deploy platform API to Fly.io
-- [ ] Update web app env vars for production platform URL
-- [ ] Verify end-to-end on Vercel + Fly.io
+### Phase 3: Deploy — DONE
+- [x] Deploy platform API to Fly.io (bolt-platform, Mohamed's org, Node 22, never sleeps)
+- [x] Custom domain: api.opencomputer.dev (A + AAAA + ACME challenge on Cloudflare)
+- [x] Fly secrets: DATABASE_URL, ANTHROPIC_API_KEY, OPENCOMPUTER_API_URL
+- [x] Verified end-to-end: web on localhost -> platform on Fly -> OpenComputer sandbox
 
 ---
 
