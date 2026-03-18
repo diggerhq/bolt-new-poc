@@ -8,6 +8,10 @@ const AGENT_DIR = path.resolve(process.cwd(), "..", "agent");
 const SANDBOX_TIMEOUT = 3600; // 1 hour idle
 const DEV_SERVER_PORT = 3000;
 
+// Keep agent sessions alive in memory so the WebSocket stays open
+// and events continue to flow. Key: builder session ID.
+const activeSessions = new Map<string, AgentSession>();
+
 function getConfig() {
   const apiKey = process.env.OPENCOMPUTER_API_KEY;
   const apiUrl = process.env.OPENCOMPUTER_API_URL ?? "https://app.opencomputer.dev";
@@ -31,9 +35,10 @@ export interface SandboxHandle {
 }
 
 export async function bootstrapSandbox(
+  builderSessionId: string,
   prompt: string,
   onEvent: (event: AgentEvent) => void,
-): Promise<{ handle: SandboxHandle; agentSession: AgentSession }> {
+): Promise<SandboxHandle> {
   const { apiKey, apiUrl, anthropicApiKey } = getConfig();
 
   // 1. Create sandbox
@@ -65,44 +70,61 @@ export async function bootstrapSandbox(
       },
     });
 
-    // 5. Get preview URL (agent will start dev server as part of its work)
+    // Keep the session alive in memory
+    activeSessions.set(builderSessionId, agentSession);
+
+    // Clean up when the agent process exits
+    agentSession.done.then(() => {
+      activeSessions.delete(builderSessionId);
+    });
+
+    // 5. Get preview URL
     let previewUrl = "";
     try {
       const preview = await sandbox.createPreviewURL({ port: DEV_SERVER_PORT });
       previewUrl = `https://${preview.hostname}`;
     } catch {
-      // Preview URL may fail if dev server isn't up yet — that's ok,
-      // we'll update it later when the agent starts the server
+      // Preview URL may fail if dev server isn't up yet — that's ok
     }
 
     return {
-      handle: {
-        sandboxId: sandbox.sandboxId,
-        previewUrl,
-        agentSessionId: agentSession.sessionId,
-      },
-      agentSession,
+      sandboxId: sandbox.sandboxId,
+      previewUrl,
+      agentSessionId: agentSession.sessionId,
     };
   } catch (err) {
-    // Cleanup on failure
     await sandbox.kill().catch(() => {});
     throw err;
   }
 }
 
 export async function sendMessage(
+  builderSessionId: string,
   sandboxId: string,
   agentSessionId: string,
   message: string,
   onEvent: (event: AgentEvent) => void,
-): Promise<AgentSession> {
-  const { apiKey, apiUrl } = getConfig();
+): Promise<void> {
+  // Try to reuse the in-memory session first
+  let session = activeSessions.get(builderSessionId);
 
-  const sandbox = await Sandbox.connect(sandboxId, { apiKey, apiUrl });
-  const agentSession = await sandbox.agent.attach(agentSessionId, { onEvent });
-  agentSession.sendPrompt(message);
+  if (!session) {
+    // Reattach if we lost the in-memory reference (e.g. server restart)
+    const { apiKey, apiUrl } = getConfig();
+    const sandbox = await Sandbox.connect(sandboxId, { apiKey, apiUrl });
+    session = await sandbox.agent.attach(agentSessionId, {
+      onEvent,
+      onError: (data) => {
+        console.error("[sandbox agent stderr]", data);
+      },
+    });
+    activeSessions.set(builderSessionId, session);
+    session.done.then(() => {
+      activeSessions.delete(builderSessionId);
+    });
+  }
 
-  return agentSession;
+  session.sendPrompt(message);
 }
 
 export async function ensurePreviewUrl(sandboxId: string): Promise<string> {
@@ -126,9 +148,7 @@ export async function killSandbox(sandboxId: string): Promise<void> {
 }
 
 async function syncAgentConfig(sandbox: Sandbox): Promise<void> {
-  // Sync skills directory into sandbox
-  const skillsDir = path.join(AGENT_DIR, ".claude", "skills", "build-app");
-  const skillPath = path.join(skillsDir, "SKILL.md");
+  const skillPath = path.join(AGENT_DIR, ".claude", "skills", "build-app", "SKILL.md");
 
   if (fs.existsSync(skillPath)) {
     const content = fs.readFileSync(skillPath, "utf-8");

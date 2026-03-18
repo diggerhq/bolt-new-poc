@@ -66,9 +66,10 @@ function eventMessage(event: AgentEvent): string {
 
 export function createEventHandler(sessionId: string) {
   return async (event: AgentEvent): Promise<void> => {
+    const pool = getDbPool();
+
     // 1. Persist to database
     try {
-      const pool = getDbPool();
       await pool.query(
         `INSERT INTO session_events (id, session_id, type, level, message, metadata, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
@@ -85,7 +86,19 @@ export function createEventHandler(sessionId: string) {
       console.error("[event-bridge] failed to persist event:", err);
     }
 
-    // 2. Push to SSE subscribers
+    // 2. Update session status on turn completion
+    if (event.type === "turn_complete") {
+      try {
+        await pool.query(
+          `UPDATE builder_sessions SET status = 'ready', updated_at = NOW() WHERE id = $1`,
+          [sessionId],
+        );
+      } catch (err) {
+        console.error("[event-bridge] failed to update session status:", err);
+      }
+    }
+
+    // 3. Push to SSE subscribers
     notifySubscribers(sessionId, event);
   };
 }

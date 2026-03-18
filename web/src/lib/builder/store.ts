@@ -13,7 +13,6 @@ import { getDbPool, runInTransaction } from "@/lib/db/postgres";
 import {
   bootstrapSandbox,
   sendMessage as sendSandboxMessage,
-  ensurePreviewUrl,
 } from "@/lib/sandbox/opencomputer";
 import { createEventHandler } from "@/lib/sandbox/event-bridge";
 
@@ -336,7 +335,7 @@ export async function createBuilderSession(
   const onEvent = createEventHandler(sessionId);
 
   try {
-    const { handle } = await bootstrapSandbox(prompt, onEvent);
+    const handle = await bootstrapSandbox(sessionId, prompt, onEvent);
 
     // Update session with sandbox details
     const pool = getDbPool();
@@ -437,23 +436,12 @@ export async function appendBuilderSessionMessage(
     const onEvent = createEventHandler(input.sessionId);
     try {
       await sendSandboxMessage(
+        input.sessionId,
         row.sandbox_id,
         row.sandbox_agent_session_id,
         message,
         onEvent,
       );
-      // Preview URL may now be available if the agent started the dev server
-      try {
-        const previewUrl = await ensurePreviewUrl(row.sandbox_id);
-        if (previewUrl) {
-          await pool.query(
-            `update builder_sessions set preview_url = $2, updated_at = now() where id = $1`,
-            [input.sessionId, previewUrl],
-          );
-        }
-      } catch {
-        // non-critical
-      }
     } catch (err) {
       await pool.query(
         `
