@@ -8,7 +8,7 @@ const app = new Hono();
 
 // CORS — allow web app origins
 app.use("*", cors({
-  origin: ["http://127.0.0.1:3000", "http://localhost:3000", "https://bolt-new-poc-web.vercel.app"],
+  origin: ["http://127.0.0.1:3000", "http://localhost:3000", "https://bolt-new-poc-web.vercel.app", "https://api.opencomputer.dev"],
   allowHeaders: ["Content-Type", "X-API-Key"],
   exposeHeaders: ["Content-Type"],
 }));
