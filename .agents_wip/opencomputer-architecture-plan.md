@@ -6,7 +6,7 @@
 
 ## Goal
 
-Replace E2B with OpenComputer as the sandbox provider for the builder app. Align with the same agent deployment and execution patterns used by `base360-checkin-agent` and `agents-api`, while adapting for the builder's interactive, multi-turn, streaming requirements.
+Replace E2B with OpenComputer as the sandbox provider for the builder app. Interactive-only: no batch mode, no agents-api deployment pipeline. The web backend uses the OpenComputer SDK directly to manage sandboxes and run the agent via `claude-agent-wrapper`.
 
 ---
 
@@ -29,20 +29,16 @@ The builder needs **interactive sessions**: persistent sandbox across many chat 
 
 ## Architecture Decision
 
-### Two-layer approach: agents-api for packaging/deployment, OpenComputer SDK for runtime
+### Web backend talks to OpenComputer directly
 
 | Concern | Owner | Rationale |
 |---------|-------|-----------|
-| Agent code (prompts, skills, tools) | `agent/` directory in bolt-new-poc | Same pattern as checkin-agent |
-| Agent packaging & versioning | agents-api | Immutable versions, R2 artifact storage, deploy pipeline |
+| Agent config (prompt, skills, tools) | `agent/` directory in bolt-new-poc | Config files synced into sandbox |
 | Sandbox lifecycle (create, persist, kill) | Web backend via OpenComputer TS SDK | Need persistent sandbox across turns |
 | Agent execution (multi-turn, streaming) | Web backend via OpenComputer Agent API | `sandbox.agent.start()` + `sendPrompt()` with event streaming |
 | Preview URL | OpenComputer sandbox port exposure | Dev server runs in sandbox, port exposed as preview URL |
-| Batch/API execution (future) | agents-api | Same agent artifact, batch mode, for headless/CI use |
 
-**Why not agents-api for runtime?** Its execution model (one sandbox per execution, no streaming, teardown on completion) doesn't fit interactive builder sessions. Extending agents-api for sessions is possible but is a bigger change that should come later, informed by what we learn building this.
-
-**Why still use agents-api?** It already handles the deployment pipeline (build, package, upload to R2, create version, manage env vars). We want the builder agent to be a first-class agents-api agent that _also_ supports interactive mode.
+**Why not agents-api?** Its execution model (one sandbox per execution, no streaming, teardown on completion) doesn't fit interactive builder sessions. agents-api may grow session support later, informed by what we learn here.
 
 ---
 
@@ -50,18 +46,11 @@ The builder needs **interactive sessions**: persistent sandbox across many chat 
 
 ```
 bolt-new-poc/
-  agent/                    # Builder agent code (NEW)
-    src/
-      main.ts               # Batch entry point (agents-api compat)
-      prompt.ts              # System prompt builder
-      tools.ts               # Tool definitions/config
-      contracts/
-        session.ts           # Input/output schemas
+  agent/                    # Builder agent config (NEW) — synced into sandbox
+    prompt.md               # System prompt for the builder agent
     .claude/
       skills/
-        build-app/SKILL.md   # Builder workflow skill
-    package.json
-    tsconfig.json
+        build-app/SKILL.md  # Builder workflow skill
 
   web/                       # Next.js app (EXISTING, modified)
     src/
@@ -83,9 +72,6 @@ bolt-new-poc/
               events/
                 route.ts     # (NEW) SSE endpoint for streaming events
 
-  scripts/
-    deploy-builder-agent.mjs # Package + deploy agent to agents-api (NEW)
-
   supabase/
     migrations/
       ...existing...
@@ -98,32 +84,20 @@ bolt-new-poc/
 
 ### Shape
 
-Mirrors `base360-checkin-agent/agent/` pattern:
+No code — just config files synced into the sandbox:
 
-- **Claude Agent SDK** with `query()` or via `claude-agent-wrapper` (configurable)
-- **System prompt** tailored for web app building: file editing, terminal, dev server management
-- **Tools**: `Bash` (run commands, install deps, start servers), `Read`/`Write` (file ops), `Skill` (build-app workflow)
-- **Skill**: `.claude/skills/build-app/SKILL.md` — codifies the builder workflow (scaffold -> install -> edit -> restart -> verify)
+- **`prompt.md`**: System prompt tailored for web app building (file editing, terminal, dev server management)
+- **`.claude/skills/build-app/SKILL.md`**: Codifies the builder workflow (scaffold -> install -> edit -> restart -> verify)
 
-### Dual execution modes
+These are loaded into `claude-agent-wrapper` (pre-installed in the OpenComputer default template) at session start via `sandbox.agent.start({ systemPrompt, ... })`.
 
-1. **Interactive mode** (via OpenComputer `sandbox.agent.start()`):
-   - Used by the web UI
-   - `claude-agent-wrapper` runs in sandbox, configured with builder system prompt + tools
-   - Multi-turn: `sendPrompt(text)` for each user message
-   - Streaming events flow over WebSocket
+### Runtime
 
-2. **Batch mode** (via agents-api execution):
-   - Used for headless/API/CI scenarios
-   - `node dist/main.ts --input ... --output ...` (same as checkin-agent)
-   - Single prompt in, structured result out
-   - Future concern — wire up when needed
-
-### Key design: the agent code lives in `agent/` but the _runtime_ differs
-
-In interactive mode, the agent's system prompt, skills, and tool config are loaded into `claude-agent-wrapper` inside the sandbox. The `agent/` directory is synced into the sandbox at `/workspace/agent/` so skills files are accessible.
-
-In batch mode, `main.ts` runs directly (like checkin-agent).
+`claude-agent-wrapper` handles everything: multi-turn conversation, tool execution, streaming events. We configure it with:
+- System prompt (from `agent/prompt.md`)
+- Allowed tools: `bash`, `read`, `write`, `skill`
+- Working directory: `/workspace/app`
+- Skills directory synced to `/workspace/agent/.claude/skills/`
 
 ---
 
@@ -138,9 +112,8 @@ In batch mode, `main.ts` runs directly (like checkin-agent).
    - timeout: 3600s (1 hour idle)
    - envs: { ANTHROPIC_API_KEY, ... }
 
-2. Sync agent code into sandbox
+2. Sync agent config into sandbox
    - Upload agent/ contents to /workspace/agent/
-   - (Or: download versioned artifact from R2 if using agents-api packaging)
 
 3. Scaffold user project
    - Create /workspace/app/ with starter template (Next.js, etc.)
@@ -239,21 +212,11 @@ claude-agent-wrapper (in sandbox)
 
 ### No changes required for M1
 
-For the interactive builder flow, the web backend talks to OpenComputer directly. agents-api is used only for the deployment pipeline (packaging + versioning the agent artifact).
+The builder talks to OpenComputer directly. agents-api is not in the runtime path.
 
 ### Future considerations (post-M1)
 
-These are things we _might_ want to add to agents-api after learning from the builder:
-
-1. **Session-mode executions**: Long-lived sandbox, multiple turns per execution, streaming events. This would let agents-api itself serve the interactive use case, removing the need for web backend to use OpenComputer SDK directly.
-
-2. **Preview URL management**: Track and expose sandbox preview URLs as part of execution state.
-
-3. **Sandbox persistence**: Don't auto-delete sandbox on completion. Support "continue" on existing execution.
-
-4. **Event streaming**: SSE/WebSocket endpoint on agents-api for real-time execution events.
-
-Log these as gaps in `SANDBOX.md` as we build.
+If agents-api grows session support (persistent sandboxes, streaming events, multi-turn), the web backend could delegate sandbox lifecycle to agents-api instead. Log gaps in `SANDBOX.md` as we build.
 
 ---
 
@@ -272,32 +235,13 @@ ALTER TABLE builder_sessions
 
 ---
 
-## Deploy Pipeline (`scripts/deploy-builder-agent.mjs`)
-
-Same pattern as `agents-api/scripts/deploy-checkin-agent.mjs`:
-
-1. `cd agent/ && npm run build`
-2. `tar` the build output + skills + CLAUDE.md
-3. Upload tarball to R2 via presigned URL
-4. Create/update agents-api version:
-   - agent ID: `bolt-builder`
-   - runtime.command: `["node", "dist/main.js", "--input", "$AGENT_INPUT_PATH", "--output", "$AGENT_RESULT_PATH"]`
-   - env_requirements: `["ANTHROPIC_API_KEY"]`
-5. Set env vars via agents-api
-
-This gives us the batch execution path for free via agents-api, even though the web UI uses OpenComputer directly for interactive mode.
-
----
-
 ## Execution Plan (Build Order)
 
-### Phase 1: Agent scaffold
+### Phase 1: Agent config
 
-- [ ] Create `agent/` directory with package.json, tsconfig, src/
-- [ ] Write system prompt for builder agent (prompt.ts)
-- [ ] Write build-app skill (.claude/skills/build-app/SKILL.md)
-- [ ] Write batch entry point (main.ts) matching agents-api contract
-- [ ] Test locally: run agent against a local directory
+- [ ] Create `agent/` directory
+- [ ] Write system prompt (`agent/prompt.md`)
+- [ ] Write build-app skill (`agent/.claude/skills/build-app/SKILL.md`)
 
 ### Phase 2: OpenComputer integration in web backend
 
@@ -322,10 +266,8 @@ This gives us the batch execution path for free via agents-api, even though the 
 - [ ] Update builder UI iframe to load real preview URL
 - [ ] Handle dev server restart on sandbox wake
 
-### Phase 5: Deploy pipeline + polish
+### Phase 5: Polish
 
-- [ ] Write `scripts/deploy-builder-agent.mjs`
-- [ ] Deploy agent to agents-api as `bolt-builder`
 - [ ] Add sandbox hibernation/wake handling
 - [ ] Add error recovery (sandbox died, agent crashed)
 - [ ] Add timeout handling for turns
@@ -355,8 +297,6 @@ The `OPENCOMPUTER_*` values can be copied from `agents-api/.env`.
 
 4. **Cost model**: Sandbox idle timeout vs hibernation. What's the cost profile? Should we aggressively hibernate idle sandboxes?
 
-5. **Agent artifact sync**: Pull versioned artifact from R2 at sandbox bootstrap (consistent with agents-api versioning) or sync from local disk (simpler for dev)?
+5. **Vercel + WebSocket**: SSE works on Vercel, but the OpenComputer SDK uses WebSocket to receive events. The web backend (on Vercel) needs to maintain a WebSocket connection to the sandbox. Vercel serverless functions have 10s/60s timeouts — this may require a persistent backend (Fly.io, Railway) or a different streaming architecture. **This is a critical constraint to resolve early.**
 
-6. **Vercel + WebSocket**: SSE works on Vercel, but the OpenComputer SDK uses WebSocket to receive events. The web backend (on Vercel) needs to maintain a WebSocket connection to the sandbox. Vercel serverless functions have 10s/60s timeouts — this may require a persistent backend (Fly.io, Railway) or a different streaming architecture. **This is a critical constraint to resolve early.**
-
-7. **Should agents-api grow session support?**: If yes, the web backend could delegate everything to agents-api (including sandbox lifecycle) and just consume an SSE stream from agents-api. Cleaner separation but bigger agents-api change.
+6. **Should agents-api grow session support?**: If yes, the web backend could delegate everything to agents-api (including sandbox lifecycle) and just consume an SSE stream from agents-api. Cleaner separation but bigger agents-api change.
