@@ -1,25 +1,29 @@
-import { getCurrentUser } from "@/lib/auth/auth";
-import { getSession, getEventsUrl } from "@/lib/platform-client";
+import { getCurrentUser } from "@/lib/auth";
 
-interface SessionRouteParams {
-  params: Promise<{
-    sessionId: string;
-  }>;
+function platformUrl(p: string) {
+  return `${(process.env.PLATFORM_API_URL ?? "http://localhost:8081").replace(/\/+$/, "")}${p}`;
+}
+function apiKey() {
+  return process.env.OPENCOMPUTER_API_KEY ?? "";
 }
 
-export async function GET(_request: Request, { params }: SessionRouteParams) {
-  const user = await getCurrentUser();
+interface Params {
+  params: Promise<{ sessionId: string }>;
+}
 
-  if (!user) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
+export async function GET(_request: Request, { params }: Params) {
+  const user = await getCurrentUser();
+  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   const { sessionId } = await params;
-  const session = await getSession(sessionId, user.id);
+  const resp = await fetch(platformUrl(`/v1/sessions/${sessionId}?user_id=${encodeURIComponent(user.id)}`), {
+    headers: { "X-API-Key": apiKey() },
+  });
 
-  if (!session) {
-    return Response.json({ error: "Session not found." }, { status: 404 });
-  }
+  if (!resp.ok) return Response.json({ error: "Session not found." }, { status: 404 });
 
-  return Response.json({ session, eventsUrl: getEventsUrl(sessionId) });
+  const session = await resp.json();
+  const eventsUrl = `${platformUrl(`/v1/sessions/${sessionId}/events`)}?api_key=${encodeURIComponent(apiKey())}`;
+
+  return Response.json({ session, eventsUrl });
 }

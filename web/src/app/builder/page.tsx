@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { BuilderShell } from "@/app/builder/builder-shell";
-import { requireCurrentUser } from "@/lib/auth/auth";
+import { requireCurrentUser } from "@/lib/auth";
 
 export const metadata: Metadata = {
   title: "Builder",

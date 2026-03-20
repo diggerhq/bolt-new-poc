@@ -2,8 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import type { AuthUser } from "@/lib/auth/auth";
-import type { BuilderSession } from "@/lib/builder/types";
+import type { AuthUser } from "@/lib/auth";
+
+interface BuilderSession {
+  id: string;
+  status: "ready" | "running" | "error";
+  previewUrl: string;
+  messages: { id: string; role: string; content: string; createdAt: string }[];
+  events: { id: string; type: string; level: string; message: string; createdAt: string }[];
+  project: { title: string; framework: string; artifacts: { path: string; summary: string }[] };
+}
 
 // Raw agent event from SSE — preserve full structure
 interface AgentEvent {

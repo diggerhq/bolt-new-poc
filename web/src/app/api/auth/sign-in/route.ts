@@ -1,7 +1,7 @@
 import { getSignInUrl } from "@workos-inc/authkit-nextjs";
 import { NextResponse } from "next/server";
 
-import { getCurrentUser } from "@/lib/auth/auth";
+import { getCurrentUser } from "@/lib/auth";
 
 async function redirectToWorkOSLogin(request: Request) {
   const user = await getCurrentUser();
